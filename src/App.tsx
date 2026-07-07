@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Trash2,
 } from 'lucide-react'
+import type { DXCInputField, DXCUserInteraction } from 'dexie-cloud-addon'
 import { db, getDexieCloudUrl, isCloudConfigured } from './db/database'
 import {
   addBucket,
@@ -103,6 +104,7 @@ type CloudInvite = { id: string; roles?: string[]; realm?: { name?: string }; ac
 const offlineUser$ = new BehaviorSubject<CloudUser>({ isLoggedIn: false })
 const offlineSync$ = new BehaviorSubject<CloudSyncState>({ status: 'Local only' })
 const offlineInvites$ = new BehaviorSubject<CloudInvite[]>([])
+const offlineInteraction$ = new BehaviorSubject<DXCUserInteraction | undefined>(undefined)
 
 type StorageState = 'checking' | 'ready' | 'unavailable'
 
@@ -150,6 +152,9 @@ function FinanceApp() {
   const currentUser = useObservable((isCloudConfigured ? db.cloud.currentUser : offlineUser$) as never) as CloudUser | undefined
   const syncState = useObservable((isCloudConfigured ? db.cloud.syncState : offlineSync$) as never) as CloudSyncState | undefined
   const invites = useObservable((isCloudConfigured ? db.cloud.invites : offlineInvites$) as never, []) as CloudInvite[] | undefined
+  const userInteraction = useObservable(
+    (isCloudConfigured ? db.cloud.userInteraction : offlineInteraction$) as never,
+  ) as DXCUserInteraction | undefined
 
   const [filters, setFilters] = useState<Filters>(emptyFilters)
   const [editing, setEditing] = useState<Transaction | null>(null)
@@ -184,6 +189,7 @@ function FinanceApp() {
       </header>
 
       {isUsingFallbackIndexedDb() ? <PreviewStorageNotice /> : null}
+      <UserInteractionDialog interaction={userInteraction} />
 
       {!settings ? (
         <SetupPanel currentUser={currentUser} invites={invites} />
@@ -1479,6 +1485,65 @@ function History({
         <p className="empty-state">No transactions.</p>
       )}
     </section>
+  )
+}
+
+function fillMessageParams(message: string, params: Record<string, string>) {
+  return message.replace(/\{(\w+)\}/g, (match, key) => params[key] ?? match)
+}
+
+/** Renders whatever Dexie Cloud is asking for right now (email, OTP code, logout confirmation…). */
+function UserInteractionDialog({ interaction }: { interaction?: DXCUserInteraction }) {
+  const [values, setValues] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    setValues({})
+  }, [interaction])
+
+  if (!interaction) return null
+
+  return (
+    <div className="dialog-backdrop">
+      <form
+        className="dialog"
+        onSubmit={(event) => {
+          event.preventDefault()
+          interaction.onSubmit(values)
+        }}
+      >
+        <h2>{interaction.title}</h2>
+        {interaction.alerts.map((alert, index) => (
+          <p className="form-error" key={index}>
+            {fillMessageParams(alert.message, alert.messageParams)}
+          </p>
+        ))}
+        <div className="form-grid">
+          {(Object.entries(interaction.fields) as Array<[string, DXCInputField]>).map(([name, field]) => (
+            <label key={name}>
+              {field.label ?? name}
+              <input
+                type={field.type === 'otp' ? 'text' : field.type}
+                inputMode={field.type === 'otp' ? 'numeric' : undefined}
+                placeholder={'placeholder' in field ? field.placeholder : undefined}
+                value={values[name] ?? ''}
+                onChange={(event) => setValues((prev) => ({ ...prev, [name]: event.target.value }))}
+                autoFocus
+              />
+            </label>
+          ))}
+        </div>
+        <div className="dialog-actions">
+          {interaction.cancelLabel ? (
+            <button type="button" className="ghost-button" onClick={() => interaction.onCancel()}>
+              {interaction.cancelLabel}
+            </button>
+          ) : null}
+          <button type="submit" className="primary-button">
+            {interaction.submitLabel}
+          </button>
+        </div>
+      </form>
+    </div>
   )
 }
 
