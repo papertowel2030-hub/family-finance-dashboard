@@ -1,0 +1,107 @@
+{
+  "app": "family-finance-dashboard",
+  "version": 1,
+  "exportedAt": "2026-07-07T20:18:40.638Z",
+  "settings": [
+    {
+      "id": "settings_ff635346-8527-4474-9b64-f5df127417ca",
+      "defaultCurrency": "RUB",
+      "createdAt": "2026-07-07T20:11:45.669Z",
+      "updatedAt": "2026-07-07T20:11:45.669Z"
+    }
+  ],
+  "buckets": [
+    {
+      "id": "bucket_48c58a81-ccd0-4acb-8846-77ace6e1640c",
+      "name": "Alena",
+      "ownerId": "alena",
+      "kind": "spending",
+      "createdAt": "2026-07-07T20:11:45.681Z",
+      "updatedAt": "2026-07-07T20:11:45.681Z"
+    },
+    {
+      "id": "bucket_4d0b10fc-eec7-44c1-9f40-5ab94bb64609",
+      "name": "Moon",
+      "ownerId": "moon",
+      "kind": "spending",
+      "createdAt": "2026-07-07T20:11:45.681Z",
+      "updatedAt": "2026-07-07T20:11:45.681Z"
+    },
+    {
+      "id": "bucket_9ffd044c-9dfe-437a-9b10-725439ee9fde",
+      "name": "Family",
+      "ownerId": "shared",
+      "kind": "spending",
+      "createdAt": "2026-07-07T20:11:45.681Z",
+      "updatedAt": "2026-07-07T20:11:45.681Z"
+    },
+    {
+      "id": "bucket_test_biz",
+      "name": "Business 1",
+      "ownerId": "alena",
+      "kind": "business",
+      "createdAt": "2026-07-07T20:11:59.288Z",
+      "updatedAt": "2026-07-07T20:11:59.288Z"
+    }
+  ],
+  "incomeSources": [
+    {
+      "id": "source_test_salary",
+      "name": "Salary A",
+      "createdAt": "2026-07-07T20:11:59.288Z",
+      "updatedAt": "2026-07-07T20:11:59.288Z"
+    }
+  ],
+  "categories": [
+    {
+      "id": "cat_test_groceries",
+      "name": "Groceries",
+      "createdAt": "2026-07-07T20:11:59.288Z",
+      "updatedAt": "2026-07-07T20:11:59.288Z"
+    }
+  ],
+  "transactions": [
+    {
+      "id": "t1",
+      "date": "2026-07-01",
+      "type": "income",
+      "amount": 80000,
+      "currency": "RUB",
+      "bucketId": "bucket_48c58a81-ccd0-4acb-8846-77ace6e1640c",
+      "createdAt": "2026-07-07T20:11:59.288Z",
+      "updatedAt": "2026-07-07T20:11:59.288Z",
+      "sourceId": "source_test_salary"
+    },
+    {
+      "id": "t2",
+      "date": "2026-07-02",
+      "type": "funding",
+      "amount": 20000,
+      "currency": "RUB",
+      "bucketId": "bucket_test_biz",
+      "createdAt": "2026-07-07T20:11:59.288Z",
+      "updatedAt": "2026-07-07T20:11:59.288Z"
+    },
+    {
+      "id": "t3",
+      "date": "2026-07-03",
+      "type": "expense",
+      "amount": 5000,
+      "currency": "RUB",
+      "bucketId": "bucket_test_biz",
+      "createdAt": "2026-07-07T20:11:59.288Z",
+      "updatedAt": "2026-07-07T20:11:59.288Z"
+    },
+    {
+      "id": "t5",
+      "date": "2026-06-15",
+      "type": "income",
+      "amount": 70000,
+      "currency": "RUB",
+      "bucketId": "bucket_48c58a81-ccd0-4acb-8846-77ace6e1640c",
+      "createdAt": "2026-07-07T20:11:59.288Z",
+      "updatedAt": "2026-07-07T20:11:59.288Z",
+      "sourceId": "source_test_salary"
+    }
+  ]
+}

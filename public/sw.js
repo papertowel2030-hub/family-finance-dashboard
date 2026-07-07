@@ -1,11 +1,12 @@
 try {
-  importScripts('/dexie-cloud-addon-service-worker.js')
+  // Relative to this script's URL so the app also works from a sub-path (GitHub Pages).
+  importScripts('./dexie-cloud-addon-service-worker.js')
 } catch (_error) {
   // Dexie Cloud still syncs while the app is open when the worker helper is absent.
 }
 
 const CACHE_NAME = 'family-finance-v1'
-const STATIC_ASSETS = ['/', '/manifest.webmanifest', '/icons/icon.svg']
+const STATIC_ASSETS = ['./', './manifest.webmanifest', './icons/icon.svg']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS)))
