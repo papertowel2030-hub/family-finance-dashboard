@@ -1,0 +1,66 @@
+import Dexie, { type Table } from 'dexie'
+import dexieCloud from 'dexie-cloud-addon'
+import type { AppSettings, Bucket, Category, IncomeSource, Transaction } from '../types'
+
+const cloudUrl = import.meta.env.VITE_DEXIE_CLOUD_URL as string | undefined
+
+export class FinanceDatabase extends Dexie {
+  settings!: Table<AppSettings, string>
+  buckets!: Table<Bucket, string>
+  incomeSources!: Table<IncomeSource, string>
+  categories!: Table<Category, string>
+  transactions!: Table<Transaction, string>
+
+  constructor() {
+    super('FamilyFinanceDashboard', cloudUrl ? { addons: [dexieCloud] } : undefined)
+
+    this.version(2).stores({
+      settings: 'id, realmId, activeMonthKey',
+      businesses: 'id, realmId, name, ownerId, archived',
+      categories: 'id, realmId, name, scope, archived',
+      assetItems: 'id, realmId, name, kind, currency, archived',
+      transactions: 'id, realmId, date, type, ownerId, sourceBusinessId, categoryId',
+      transactionSplits: 'id, realmId, transactionId, date, target, ownerId, businessId, assetId, categoryId, currency',
+      monthClosures: 'id, realmId, monthKey, closedAt',
+      realms: 'realmId',
+      members: 'id,[email+realmId],realmId,email',
+      roles: '[realmId+name]',
+    })
+
+    // v3: buckets + sources model. Old split-based tables are dropped and
+    // their test data cleared (no real data existed before this version).
+    this.version(3)
+      .stores({
+        settings: 'id, realmId',
+        buckets: 'id, realmId, name, ownerId, kind, archived',
+        incomeSources: 'id, realmId, name, archived',
+        categories: 'id, realmId, name, archived',
+        transactions: 'id, realmId, date, type, bucketId, toBucketId, sourceId, categoryId',
+        businesses: null,
+        assetItems: null,
+        transactionSplits: null,
+        monthClosures: null,
+        realms: 'realmId',
+        members: 'id,[email+realmId],realmId,email',
+        roles: '[realmId+name]',
+      })
+      .upgrade(async (tx) => {
+        await Promise.all([tx.table('settings').clear(), tx.table('categories').clear(), tx.table('transactions').clear()])
+      })
+
+    if (cloudUrl) {
+      this.cloud.configure({
+        databaseUrl: cloudUrl,
+        requireAuth: true,
+        tryUseServiceWorker: import.meta.env.PROD,
+      })
+    }
+  }
+}
+
+export const db = new FinanceDatabase()
+export const isCloudConfigured = Boolean(cloudUrl)
+
+export function getDexieCloudUrl() {
+  return cloudUrl
+}
