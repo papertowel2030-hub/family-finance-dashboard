@@ -225,6 +225,66 @@ h3 {
   color: var(--muted);
 }
 
+.month-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 22px;
+  padding: 12px 16px;
+  background: rgba(255, 250, 242, 0.88);
+  border: 1px solid rgba(222, 213, 200, 0.82);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.summary-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.summary-item.in {
+  color: var(--blue);
+}
+
+.summary-item.out {
+  color: var(--plum);
+}
+
+.month-summary .small-label {
+  margin-left: auto;
+}
+
+.undo-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: min(92vw, 480px);
+  padding: 12px 16px;
+  background: var(--ink);
+  color: #fffaf2;
+  border-radius: 10px;
+  box-shadow: 0 14px 40px rgba(42, 35, 28, 0.35);
+  font-weight: 700;
+}
+
+.undo-toast button {
+  border: 1px solid rgba(255, 250, 242, 0.4);
+  border-radius: 8px;
+  background: transparent;
+  color: #ffd9a0;
+  font-weight: 900;
+  padding: 6px 14px;
+  min-height: 0;
+}
+
 .month-flow {
   margin: 10px 0 0;
   color: var(--muted);

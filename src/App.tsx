@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery, useObservable } from 'dexie-react-hooks'
 import { BehaviorSubject } from 'rxjs'
 import {
@@ -16,6 +16,7 @@ import {
   LogOut,
   Plus,
   RefreshCcw,
+  Repeat,
   Search,
   Settings,
   ShieldCheck,
@@ -30,6 +31,7 @@ import {
   createLocalFamilySpace,
   deleteBucket,
   deleteTransaction,
+  restoreTransaction,
   saveAdjustment,
   saveExpense,
   saveFunding,
@@ -151,6 +153,15 @@ function FinanceApp() {
   const [filters, setFilters] = useState<Filters>(emptyFilters)
   const [editing, setEditing] = useState<Transaction | null>(null)
   const [monthKey, setMonthKey] = useState(currentMonthKey())
+  const [justDeleted, setJustDeleted] = useState<Transaction | null>(null)
+  const [prefill, setPrefill] = useState<{ transaction: Transaction; key: number } | null>(null)
+  const recordRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    if (!justDeleted) return
+    const timer = window.setTimeout(() => setJustDeleted(null), 8000)
+    return () => window.clearTimeout(timer)
+  }, [justDeleted])
 
   const ledger = useMemo(() => computeLedger(buckets ?? [], transactions ?? [], monthKey), [buckets, transactions, monthKey])
 
@@ -179,7 +190,14 @@ function FinanceApp() {
         <>
           {invites && invites.length > 0 ? <InvitePanel invites={invites} /> : null}
           <Dashboard ledger={ledger} monthKey={monthKey} onMonthChange={setMonthKey} />
-          <RecordMoney settings={settings} buckets={activeBuckets} sources={sources ?? []} categories={categories ?? []} />
+          <RecordMoney
+            settings={settings}
+            buckets={activeBuckets}
+            sources={sources ?? []}
+            categories={categories ?? []}
+            prefill={prefill}
+            scrollRef={recordRef}
+          />
           <section className="analytics-band">
             <FiltersPanel filters={filters} setFilters={setFilters} buckets={buckets ?? []} sources={sources ?? []} categories={categories ?? []} />
             <Charts transactions={filteredTransactions} buckets={buckets ?? []} sources={sources ?? []} categories={categories ?? []} />
@@ -190,6 +208,14 @@ function FinanceApp() {
             sources={sources ?? []}
             categories={categories ?? []}
             onEdit={setEditing}
+            onDelete={async (transaction) => {
+              await deleteTransaction(transaction.id)
+              setJustDeleted(transaction)
+            }}
+            onRepeat={(transaction) => {
+              setPrefill({ transaction, key: Date.now() })
+              recordRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }}
           />
           <ManagementPanel
             settings={settings}
@@ -206,6 +232,22 @@ function FinanceApp() {
               categories={categories ?? []}
               onClose={() => setEditing(null)}
             />
+          ) : null}
+          {justDeleted ? (
+            <div className="undo-toast" role="status">
+              <span>
+                Deleted: {transactionLabels[justDeleted.type].toLowerCase()} {signedAmount(justDeleted)}
+              </span>
+              <button
+                type="button"
+                onClick={async () => {
+                  await restoreTransaction(justDeleted)
+                  setJustDeleted(null)
+                }}
+              >
+                Undo
+              </button>
+            </div>
           ) : null}
         </>
       )}
@@ -527,6 +569,18 @@ function Dashboard({
         </label>
       </div>
 
+      <div className="month-summary">
+        <span className="summary-item in">
+          <ArrowDownToLine size={16} />
+          Money in: +{formatBuckets(ledger.monthIncome, '0')}
+        </span>
+        <span className="summary-item out">
+          <ArrowUpFromLine size={16} />
+          Spent: −{formatBuckets(ledger.monthSpending, '0')}
+        </span>
+        <span className="small-label">{formatMonth(monthKey)} · business money not counted</span>
+      </div>
+
       {bucketGroups.map((group) => {
         const balances = ledger.balances.filter((balance) => balance.bucket.kind === group.kind)
         if (!balances.length && group.kind !== 'spending') return null
@@ -578,16 +632,58 @@ function RecordMoney({
   buckets,
   sources,
   categories,
+  prefill,
+  scrollRef,
 }: {
   settings: AppSettings
   buckets: Bucket[]
   sources: IncomeSource[]
   categories: Category[]
+  prefill: { transaction: Transaction; key: number } | null
+  scrollRef: React.RefObject<HTMLElement | null>
 }) {
   const [mode, setMode] = useState<RecordMode>('in')
 
+  useEffect(() => {
+    if (!prefill) return
+    const { type } = prefill.transaction
+    setMode(type === 'expense' ? 'expense' : type === 'transfer' ? 'transfer' : 'in')
+  }, [prefill])
+
+  const repeated = prefill?.transaction
+  const moneyInInitial =
+    repeated && (repeated.type === 'income' || repeated.type === 'funding')
+      ? {
+          amount: String(repeated.amount),
+          currency: repeated.currency,
+          bucketId: repeated.bucketId,
+          sourceName: nameForSource(repeated.sourceId, sources, ''),
+          note: repeated.note ?? '',
+        }
+      : undefined
+  const expenseInitial =
+    repeated && repeated.type === 'expense'
+      ? {
+          amount: String(repeated.amount),
+          currency: repeated.currency,
+          bucketId: repeated.bucketId,
+          categoryName: nameForCategory(repeated.categoryId, categories, ''),
+          note: repeated.note ?? '',
+        }
+      : undefined
+  const transferInitial =
+    repeated && repeated.type === 'transfer'
+      ? {
+          amount: String(repeated.amount),
+          currency: repeated.currency,
+          fromBucketId: repeated.bucketId,
+          toBucketId: repeated.toBucketId ?? '',
+          note: repeated.note ?? '',
+        }
+      : undefined
+
   return (
-    <section className="fast-add">
+    <section className="fast-add" ref={scrollRef}>
       <div className="section-header">
         <div>
           <p className="eyebrow">Fast add</p>
@@ -608,9 +704,15 @@ function RecordMoney({
           </button>
         </div>
       </div>
-      {mode === 'in' ? <MoneyInForm settings={settings} buckets={buckets} sources={sources} /> : null}
-      {mode === 'expense' ? <ExpenseForm settings={settings} buckets={buckets} categories={categories} /> : null}
-      {mode === 'transfer' ? <TransferForm settings={settings} buckets={buckets} /> : null}
+      {mode === 'in' ? (
+        <MoneyInForm key={prefill?.key} settings={settings} buckets={buckets} sources={sources} initial={moneyInInitial} />
+      ) : null}
+      {mode === 'expense' ? (
+        <ExpenseForm key={prefill?.key} settings={settings} buckets={buckets} categories={categories} initial={expenseInitial} />
+      ) : null}
+      {mode === 'transfer' ? (
+        <TransferForm key={prefill?.key} settings={settings} buckets={buckets} initial={transferInitial} />
+      ) : null}
     </section>
   )
 }
@@ -649,13 +751,23 @@ function BucketSelect({
   )
 }
 
-function MoneyInForm({ settings, buckets, sources }: { settings: AppSettings; buckets: Bucket[]; sources: IncomeSource[] }) {
+function MoneyInForm({
+  settings,
+  buckets,
+  sources,
+  initial,
+}: {
+  settings: AppSettings
+  buckets: Bucket[]
+  sources: IncomeSource[]
+  initial?: { amount: string; currency: string; bucketId: string; sourceName: string; note: string }
+}) {
   const [date, setDate] = useState(todayInputDate())
-  const [amount, setAmount] = useState('')
-  const [currency, setCurrency] = useState(settings.defaultCurrency)
-  const [bucketId, setBucketId] = useState('')
-  const [sourceName, setSourceName] = useState('')
-  const [note, setNote] = useState('')
+  const [amount, setAmount] = useState(initial?.amount ?? '')
+  const [currency, setCurrency] = useState(initial?.currency ?? settings.defaultCurrency)
+  const [bucketId, setBucketId] = useState(initial?.bucketId ?? '')
+  const [sourceName, setSourceName] = useState(initial?.sourceName ?? '')
+  const [note, setNote] = useState(initial?.note ?? '')
   const [error, setError] = useState('')
 
   const selectedBucket = buckets.find((bucket) => bucket.id === bucketId)
@@ -708,13 +820,23 @@ function MoneyInForm({ settings, buckets, sources }: { settings: AppSettings; bu
   )
 }
 
-function ExpenseForm({ settings, buckets, categories }: { settings: AppSettings; buckets: Bucket[]; categories: Category[] }) {
+function ExpenseForm({
+  settings,
+  buckets,
+  categories,
+  initial,
+}: {
+  settings: AppSettings
+  buckets: Bucket[]
+  categories: Category[]
+  initial?: { amount: string; currency: string; bucketId: string; categoryName: string; note: string }
+}) {
   const [date, setDate] = useState(todayInputDate())
-  const [amount, setAmount] = useState('')
-  const [currency, setCurrency] = useState(settings.defaultCurrency)
-  const [bucketId, setBucketId] = useState('')
-  const [categoryName, setCategoryName] = useState('')
-  const [note, setNote] = useState('')
+  const [amount, setAmount] = useState(initial?.amount ?? '')
+  const [currency, setCurrency] = useState(initial?.currency ?? settings.defaultCurrency)
+  const [bucketId, setBucketId] = useState(initial?.bucketId ?? '')
+  const [categoryName, setCategoryName] = useState(initial?.categoryName ?? '')
+  const [note, setNote] = useState(initial?.note ?? '')
   const [error, setError] = useState('')
 
   return (
@@ -760,13 +882,21 @@ function ExpenseForm({ settings, buckets, categories }: { settings: AppSettings;
   )
 }
 
-function TransferForm({ settings, buckets }: { settings: AppSettings; buckets: Bucket[] }) {
+function TransferForm({
+  settings,
+  buckets,
+  initial,
+}: {
+  settings: AppSettings
+  buckets: Bucket[]
+  initial?: { amount: string; currency: string; fromBucketId: string; toBucketId: string; note: string }
+}) {
   const [date, setDate] = useState(todayInputDate())
-  const [amount, setAmount] = useState('')
-  const [currency, setCurrency] = useState(settings.defaultCurrency)
-  const [fromBucketId, setFromBucketId] = useState('')
-  const [toBucketId, setToBucketId] = useState('')
-  const [note, setNote] = useState('')
+  const [amount, setAmount] = useState(initial?.amount ?? '')
+  const [currency, setCurrency] = useState(initial?.currency ?? settings.defaultCurrency)
+  const [fromBucketId, setFromBucketId] = useState(initial?.fromBucketId ?? '')
+  const [toBucketId, setToBucketId] = useState(initial?.toBucketId ?? '')
+  const [note, setNote] = useState(initial?.note ?? '')
   const [error, setError] = useState('')
 
   return (
@@ -1223,12 +1353,16 @@ function History({
   sources,
   categories,
   onEdit,
+  onDelete,
+  onRepeat,
 }: {
   transactions: Transaction[]
   buckets: Bucket[]
   sources: IncomeSource[]
   categories: Category[]
   onEdit: (transaction: Transaction) => void
+  onDelete: (transaction: Transaction) => void
+  onRepeat: (transaction: Transaction) => void
 }) {
   return (
     <section className="history panel">
@@ -1252,6 +1386,17 @@ function History({
                 {transaction.note ? <span>{transaction.note}</span> : null}
               </div>
               <div className="row-actions">
+                {transaction.type !== 'adjustment' ? (
+                  <button
+                    type="button"
+                    className="icon-button subtle"
+                    aria-label="Repeat transaction"
+                    title="Fill the form with this again, dated today"
+                    onClick={() => onRepeat(transaction)}
+                  >
+                    <Repeat size={16} />
+                  </button>
+                ) : null}
                 <button type="button" className="icon-button subtle" aria-label="Edit transaction" onClick={() => onEdit(transaction)}>
                   <Edit3 size={16} />
                 </button>
@@ -1259,9 +1404,7 @@ function History({
                   type="button"
                   className="icon-button subtle"
                   aria-label="Delete transaction"
-                  onClick={() => {
-                    if (window.confirm('Delete this transaction?')) deleteTransaction(transaction.id)
-                  }}
+                  onClick={() => onDelete(transaction)}
                 >
                   <Trash2 size={16} />
                 </button>

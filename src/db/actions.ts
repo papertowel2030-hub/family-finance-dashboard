@@ -264,6 +264,11 @@ export async function deleteTransaction(transactionId: string) {
   await db.transactions.delete(transactionId)
 }
 
+/** Puts back a just-deleted transaction unchanged (the Undo in the delete toast). */
+export async function restoreTransaction(transaction: Transaction) {
+  await db.transactions.put(transaction)
+}
+
 export async function updateDefaultCurrency(settings: AppSettings, currency: string) {
   await db.settings.update(settings.id, {
     defaultCurrency: normalizeCurrency(currency),

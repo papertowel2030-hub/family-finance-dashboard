@@ -41,6 +41,9 @@ function flows(transaction: Transaction): Array<{ bucketId: string; amount: numb
 }
 
 export function computeLedger(buckets: Bucket[], transactions: Transaction[], monthKey?: string): LedgerSnapshot {
+  const bucketKinds = new Map(buckets.map((bucket) => [bucket.id, bucket.kind]))
+  const monthIncome = new Map<string, number>()
+  const monthSpending = new Map<string, number>()
   const accumulators = new Map<string, BucketAccumulator>()
   const accumulatorFor = (bucketId: string) => {
     const existing = accumulators.get(bucketId)
@@ -52,6 +55,12 @@ export function computeLedger(buckets: Bucket[], transactions: Transaction[], mo
 
   for (const transaction of transactions) {
     const inMonth = monthKey ? monthKeyFromDate(transaction.date) === monthKey : false
+    if (inMonth && transaction.type === 'income') {
+      addMoney(monthIncome, transaction.currency, transaction.amount)
+    }
+    if (inMonth && transaction.type === 'expense' && bucketKinds.get(transaction.bucketId) !== 'business') {
+      addMoney(monthSpending, transaction.currency, transaction.amount)
+    }
     for (const flow of flows(transaction)) {
       const accumulator = accumulatorFor(flow.bucketId)
       addMoney(accumulator.totals, transaction.currency, flow.amount)
@@ -79,7 +88,7 @@ export function computeLedger(buckets: Bucket[], transactions: Transaction[], mo
       .map((total) => `${balance.bucket.name} is below zero: ${formatMoney(total.amount, total.currency)}`),
   )
 
-  return { balances, negativeWarnings }
+  return { balances, monthIncome: mapToBuckets(monthIncome), monthSpending: mapToBuckets(monthSpending), negativeWarnings }
 }
 
 export function balanceForBucket(snapshot: LedgerSnapshot, bucketId: string): MoneyBucket[] {

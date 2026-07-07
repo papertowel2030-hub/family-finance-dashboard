@@ -123,6 +123,29 @@ describe('computeLedger', () => {
     expect(balance.monthOut).toEqual([{ currency: 'RUB', amount: 9000 }])
   })
 
+  it('summarizes the month across buckets, leaving business money out', () => {
+    const snapshot = computeLedger(
+      [alena, family, business],
+      [
+        txn('income', alena.id, 80000, '2026-07-01'),
+        txn('income', family.id, 500, '2026-07-02', { currency: 'USD' }),
+        txn('funding', business.id, 20000, '2026-07-03'),
+        txn('expense', family.id, 12000, '2026-07-04'),
+        txn('expense', business.id, 5000, '2026-07-05'),
+        txn('transfer', alena.id, 9000, '2026-07-06', { toBucketId: family.id }),
+        txn('income', alena.id, 70000, '2026-06-15'),
+      ],
+      '2026-07',
+    )
+
+    // Funding and business expenses stay out; June income stays out; transfers are not income or spending.
+    expect(snapshot.monthIncome).toEqual([
+      { currency: 'RUB', amount: 80000 },
+      { currency: 'USD', amount: 500 },
+    ])
+    expect(snapshot.monthSpending).toEqual([{ currency: 'RUB', amount: 12000 }])
+  })
+
   it('hides archived buckets', () => {
     const archived = { ...bucket('b_old', 'Old', 'spending'), archived: true }
     const snapshot = computeLedger([alena, archived], [txn('income', archived.id, 1000, '2026-07-01')])

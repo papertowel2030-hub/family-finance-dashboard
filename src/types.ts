@@ -85,6 +85,10 @@ export interface BucketBalance {
 
 export interface LedgerSnapshot {
   balances: BucketBalance[]
+  /** Income received in the selected month across all buckets — business funding excluded. */
+  monthIncome: MoneyBucket[]
+  /** Expenses paid in the selected month from spending/savings buckets — business expenses excluded. */
+  monthSpending: MoneyBucket[]
   negativeWarnings: string[]
 }
 
