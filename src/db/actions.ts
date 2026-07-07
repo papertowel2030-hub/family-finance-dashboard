@@ -41,7 +41,8 @@ export async function createLocalFamilySpace() {
 }
 
 export async function createCloudFamilySpace(spouseEmail: string, spouseName = 'Alena') {
-  const realmId = `family_${crypto.randomUUID()}`
+  // Dexie Cloud requires custom realm IDs to start with "rlm" (its own reserved prefix for this table).
+  const realmId = makeId('rlm')
   const currentUserId = db.cloud.currentUserId
 
   await db.transaction('rw', db.realms, db.members, db.settings, db.buckets, async () => {
