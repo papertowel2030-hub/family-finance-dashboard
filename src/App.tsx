@@ -483,6 +483,7 @@ function SetupPanel({
   const [spouseEmail, setSpouseEmail] = useState('')
   const [spouseName, setSpouseName] = useState('Alena')
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
 
   return (
     <section className="setup-panel">
@@ -507,9 +508,16 @@ function SetupPanel({
           className="stacked-form"
           onSubmit={async (event) => {
             event.preventDefault()
+            if (busy) return
             setBusy(true)
+            setError('')
             try {
-              await createCloudFamilySpace(spouseEmail, spouseName)
+              await Promise.race([
+                createCloudFamilySpace(spouseEmail, spouseName),
+                new Promise((_, reject) => window.setTimeout(() => reject(new Error('Taking too long — check your connection and try again.')), 15000)),
+              ])
+            } catch (err) {
+              setError(err instanceof Error ? err.message : String(err))
             } finally {
               setBusy(false)
             }
@@ -523,9 +531,10 @@ function SetupPanel({
             Invite name
             <input value={spouseName} onChange={(event) => setSpouseName(event.target.value)} />
           </label>
+          {error ? <p className="form-error">{error}</p> : null}
           <button type="submit" className="primary-button" disabled={busy}>
             <ShieldCheck size={18} />
-            Create shared space
+            {busy ? 'Creating…' : 'Create shared space'}
           </button>
         </form>
       ) : (
