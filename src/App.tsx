@@ -43,6 +43,7 @@ import {
   updateDefaultCurrency,
   updateTransaction,
 } from './db/actions'
+import { backupFileName, exportBackup, parseBackup, restoreBackup } from './db/backup'
 import { computeLedger } from './lib/ledger'
 import type {
   AppSettings,
@@ -994,7 +995,64 @@ function ManagementPanel({
       <BucketManager settings={settings} buckets={buckets} ledger={ledger} />
       <SourceManager sources={sources} />
       <CategoryManager categories={categories} />
+      <BackupPanel />
     </section>
+  )
+}
+
+function BackupPanel() {
+  const [message, setMessage] = useState('')
+
+  return (
+    <div className="manager-block">
+      <h3>Backup</h3>
+      <div className="row-actions backup-actions">
+        <button
+          type="button"
+          onClick={async () => {
+            setMessage('')
+            const backup = await exportBackup()
+            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+            const url = URL.createObjectURL(blob)
+            const link = document.createElement('a')
+            link.href = url
+            link.download = backupFileName()
+            link.click()
+            URL.revokeObjectURL(url)
+            setMessage(`Saved ${backup.transactions.length} transactions to ${link.download}.`)
+          }}
+        >
+          Download backup
+        </button>
+        <label className="file-button">
+          Restore from file
+          <input
+            type="file"
+            accept="application/json,.json"
+            onChange={async (event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ''
+              if (!file) return
+              setMessage('')
+              try {
+                const backup = parseBackup(await file.text())
+                const summary = `${backup.transactions.length} transactions, ${backup.buckets.length} buckets (saved ${formatShortDate(backup.exportedAt.slice(0, 10))})`
+                if (!window.confirm(`Replace everything in the app with this backup?\n${summary}`)) return
+                await restoreBackup(backup)
+                setMessage(`Restored ${summary}.`)
+              } catch (error) {
+                setMessage(error instanceof Error ? error.message : String(error))
+              }
+            }}
+          />
+        </label>
+      </div>
+      {message ? <p className="small-label">{message}</p> : null}
+      <p className="small-label">
+        The backup is a single file with all buckets, sources, categories and transactions. Keep one somewhere safe — browser
+        storage can be wiped by clearing site data.
+      </p>
+    </div>
   )
 }
 

@@ -133,6 +133,8 @@ h3 {
 .icon-button,
 .segmented-control button,
 .mini-form button,
+.file-button,
+.backup-actions button,
 .filter-grid button {
   display: inline-flex;
   align-items: center;
@@ -162,10 +164,25 @@ h3 {
 .icon-text-button,
 .icon-button,
 .mini-form button,
+.file-button,
+.backup-actions button,
 .filter-grid button {
   background: var(--paper);
   color: var(--ink);
   border-color: var(--line);
+}
+
+.backup-actions {
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.file-button {
+  cursor: pointer;
+}
+
+.file-button input[type='file'] {
+  display: none;
 }
 
 .icon-button {
