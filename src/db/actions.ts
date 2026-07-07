@@ -93,6 +93,19 @@ export async function setBucketArchived(bucketId: string, archived: boolean) {
   await db.buckets.update(bucketId, { archived, updatedAt: nowIso() })
 }
 
+/** Deletes a bucket only while no transaction references it — otherwise history and balances would silently break. */
+export async function deleteBucket(bucketId: string) {
+  const [asSource, asTarget] = await Promise.all([
+    db.transactions.where('bucketId').equals(bucketId).count(),
+    db.transactions.where('toBucketId').equals(bucketId).count(),
+  ])
+  const used = asSource + asTarget
+  if (used > 0) {
+    throw new Error(`This bucket is used by ${used} transaction${used === 1 ? '' : 's'}. Archive it instead, or delete its transactions first.`)
+  }
+  await db.buckets.delete(bucketId)
+}
+
 export async function renameBucket(bucketId: string, name: string) {
   await db.buckets.update(bucketId, { name: name.trim(), updatedAt: nowIso() })
 }

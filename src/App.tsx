@@ -28,6 +28,7 @@ import {
   addSource,
   createCloudFamilySpace,
   createLocalFamilySpace,
+  deleteBucket,
   deleteTransaction,
   saveAdjustment,
   saveExpense,
@@ -928,6 +929,20 @@ function BucketManager({ settings, buckets, ledger }: { settings: AppSettings; b
               <strong>{formatBuckets(ledger.balances.find((balance) => balance.bucket.id === bucket.id)?.totals ?? [])}</strong>
               <button type="button" className="ghost-button" onClick={() => setBucketArchived(bucket.id, !bucket.archived)}>
                 {bucket.archived ? 'Restore' : 'Archive'}
+              </button>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={async () => {
+                  if (!window.confirm(`Delete bucket "${bucket.name}"?`)) return
+                  try {
+                    await deleteBucket(bucket.id)
+                  } catch (error) {
+                    window.alert(error instanceof Error ? error.message : String(error))
+                  }
+                }}
+              >
+                Delete
               </button>
             </span>
           </li>
