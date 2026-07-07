@@ -14,6 +14,9 @@ export class FinanceDatabase extends Dexie {
   constructor() {
     super('FamilyFinanceDashboard', cloudUrl ? { addons: [dexieCloud] } : undefined)
 
+    // realms/members/roles must match Dexie Cloud's required schema exactly, in every
+    // version — the addon validates each version definition, not just the latest.
+    // No real invite has ever gone through these tables, so it's safe to correct them here.
     this.version(2).stores({
       settings: 'id, realmId, activeMonthKey',
       businesses: 'id, realmId, name, ownerId, archived',
@@ -22,8 +25,8 @@ export class FinanceDatabase extends Dexie {
       transactions: 'id, realmId, date, type, ownerId, sourceBusinessId, categoryId',
       transactionSplits: 'id, realmId, transactionId, date, target, ownerId, businessId, assetId, categoryId, currency',
       monthClosures: 'id, realmId, monthKey, closedAt',
-      realms: 'realmId',
-      members: 'id,[email+realmId],realmId,email',
+      realms: '@realmId',
+      members: '@id, [userId+realmId], [email+realmId], realmId',
       roles: '[realmId+name]',
     })
 
@@ -40,8 +43,8 @@ export class FinanceDatabase extends Dexie {
         assetItems: null,
         transactionSplits: null,
         monthClosures: null,
-        realms: 'realmId',
-        members: 'id,[email+realmId],realmId,email',
+        realms: '@realmId',
+        members: '@id, [userId+realmId], [email+realmId], realmId',
         roles: '[realmId+name]',
       })
       .upgrade(async (tx) => {
@@ -52,6 +55,8 @@ export class FinanceDatabase extends Dexie {
       this.cloud.configure({
         databaseUrl: cloudUrl,
         requireAuth: true,
+        // The app has its own AuthButton/login form; skip the addon's built-in modal.
+        customLoginGui: true,
         tryUseServiceWorker: import.meta.env.PROD,
       })
     }

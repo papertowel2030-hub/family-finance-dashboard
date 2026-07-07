@@ -281,6 +281,11 @@ async function verifyIndexedDbAccess(timeoutMs = 2200) {
   const indexedDbAvailable = await verifyRawIndexedDbAccess(timeoutMs)
   if (!indexedDbAvailable) return false
 
+  // With Dexie Cloud + requireAuth, table reads stay pending until the user logs in,
+  // so querying the app's own tables here would misreport "not signed in yet" as
+  // "storage unavailable". The raw IndexedDB probe above is enough in that case.
+  if (isCloudConfigured) return true
+
   return withTimeout(
     db.settings
       .limit(1)
