@@ -3,7 +3,8 @@ import type { MoneyBucket } from '../types'
 const RUB_FORMAT = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'RUB',
-  maximumFractionDigits: 0,
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
 })
 
 const NUMBER_FORMAT = new Intl.NumberFormat('en-US', {
