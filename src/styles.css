@@ -888,6 +888,23 @@ h3 {
   letter-spacing: 0;
 }
 
+.activity-stack,
+.setup-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.activity-stack > *,
+.setup-stack > * {
+  margin-top: 0;
+}
+
+/* Each Setup manager sits in its own card, so drop the in-card divider styling. */
+.setup-stack .manager-block {
+  border-top: none;
+  padding: 0;
+}
+
 @media (max-width: 900px) {
   .topbar,
   .section-header,
@@ -964,11 +981,18 @@ h3 {
     grid-template-columns: 1fr;
   }
 
-  .top-actions,
   .transaction-main,
   .transaction-meta,
   .split-line {
     align-items: stretch;
+  }
+
+  .topbar {
+    gap: 12px;
+  }
+
+  .top-actions {
+    justify-content: flex-start;
   }
 
   .money-card {

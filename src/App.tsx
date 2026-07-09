@@ -21,7 +21,6 @@ import {
   Receipt,
   RefreshCcw,
   Repeat,
-  Search,
   Settings,
   ShieldCheck,
   Trash2,
@@ -228,11 +227,8 @@ function FinanceApp() {
           ) : null}
 
           {tab === 'activity' ? (
-            <>
-              <section className="analytics-band">
-                <FiltersPanel filters={filters} setFilters={setFilters} buckets={buckets ?? []} sources={sources ?? []} categories={categories ?? []} />
-                <Charts transactions={filteredTransactions} buckets={buckets ?? []} sources={sources ?? []} categories={categories ?? []} />
-              </section>
+            <div className="activity-stack">
+              <FiltersPanel filters={filters} setFilters={setFilters} buckets={buckets ?? []} sources={sources ?? []} categories={categories ?? []} />
               <History
                 transactions={filteredTransactions}
                 buckets={buckets ?? []}
@@ -248,7 +244,8 @@ function FinanceApp() {
                   setTab('add')
                 }}
               />
-            </>
+              <Charts transactions={filteredTransactions} buckets={buckets ?? []} sources={sources ?? []} categories={categories ?? []} />
+            </div>
           ) : null}
 
           {tab === 'setup' ? (
@@ -1066,17 +1063,30 @@ function ManagementPanel({
   ledger: LedgerSnapshot
 }) {
   return (
-    <section className="panel setup-block">
+    <div className="setup-stack">
       <div className="section-header compact">
         <h2>Setup</h2>
         <Settings size={20} />
       </div>
-      <CurrencySettings settings={settings} />
-      <BucketManager settings={settings} buckets={buckets} ledger={ledger} />
-      <SourceManager sources={sources} />
-      <CategoryManager categories={categories} />
-      <BackupPanel />
-    </section>
+      <section className="panel">
+        <div className="manager-block">
+          <h3>Currency</h3>
+          <CurrencySettings settings={settings} />
+        </div>
+      </section>
+      <section className="panel">
+        <BucketManager settings={settings} buckets={buckets} ledger={ledger} />
+      </section>
+      <section className="panel">
+        <SourceManager sources={sources} />
+      </section>
+      <section className="panel">
+        <CategoryManager categories={categories} />
+      </section>
+      <section className="panel">
+        <BackupPanel />
+      </section>
+    </div>
   )
 }
 
@@ -1359,12 +1369,23 @@ function FiltersPanel({
   sources: IncomeSource[]
   categories: Category[]
 }) {
+  const [open, setOpen] = useState(() => localStorage.getItem('financeFiltersOpen') === '1')
+  const activeCount = countActiveFilters(filters)
+  const toggleOpen = () => {
+    const next = !open
+    setOpen(next)
+    localStorage.setItem('financeFiltersOpen', next ? '1' : '0')
+  }
+
   return (
     <section className="panel filters-panel">
-      <div className="section-header compact">
-        <h2>Filters</h2>
-        <Search size={20} />
-      </div>
+      <button type="button" className="section-header compact history-toggle" onClick={toggleOpen}>
+        <h2>
+          Filters {activeCount ? <span className="small-label">({activeCount} active)</span> : null}
+        </h2>
+        {open ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+      </button>
+      {open ? (
       <div className="filter-grid">
         <label>
           Bucket
@@ -1422,8 +1443,20 @@ function FiltersPanel({
           Reset
         </button>
       </div>
+      ) : null}
     </section>
   )
+}
+
+function countActiveFilters(filters: Filters) {
+  let count = 0
+  if (filters.bucketId !== 'all') count += 1
+  if (filters.type !== 'all') count += 1
+  if (filters.sourceId !== 'all') count += 1
+  if (filters.categoryId !== 'all') count += 1
+  if (filters.from) count += 1
+  if (filters.to) count += 1
+  return count
 }
 
 function Charts({
