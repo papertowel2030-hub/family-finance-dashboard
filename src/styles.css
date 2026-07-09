@@ -888,6 +888,39 @@ h3 {
   letter-spacing: 0;
 }
 
+.viewer-switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.viewer-switch .small-label {
+  text-transform: uppercase;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.money-card.mine {
+  box-shadow: var(--shadow), inset 0 0 0 2px currentColor;
+}
+
+.money-card.mine .type-chip {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
+.partner-block {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.muted-group {
+  opacity: 0.6;
+}
+
 .activity-stack,
 .setup-stack {
   display: grid;

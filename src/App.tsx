@@ -113,6 +113,25 @@ const TABS: Array<{ id: Tab; label: string; Icon: typeof Wallet }> = [
 // Currencies Moon & Alena actually use, offered as a datalist while still allowing any free text.
 const COMMON_CURRENCIES = ['RUB', 'USD', 'EUR', 'GBP', 'AED', 'TRY', 'GEL', 'KZT', 'INR']
 
+// Who is looking at Home right now. Not a stored identity — a quick lens either person can flip.
+// Kept in a module variable so switching tabs and back doesn't lose it, but a fresh load starts neutral.
+type ViewerId = 'all' | 'moon' | 'alena'
+let sessionViewer: ViewerId = 'all'
+
+const VIEWER_OPTIONS: Array<{ id: ViewerId; label: string }> = [
+  { id: 'all', label: 'Everyone' },
+  { id: 'moon', label: 'Moon' },
+  { id: 'alena', label: 'Alena' },
+]
+
+/** 0 = mine (or neutral), 1 = shared, 2 = partner's — used to order buckets around the current viewer. */
+function ownerRank(ownerId: BucketOwner, viewer: ViewerId) {
+  if (viewer === 'all') return 0
+  if (ownerId === viewer) return 0
+  if (ownerId === 'shared') return 1
+  return 2
+}
+
 type CloudUser = { isLoggedIn?: boolean; name?: string; email?: string }
 type CloudSyncState = { status?: string }
 type CloudInvite = { id: string; roles?: string[]; realm?: { name?: string }; accept: () => Promise<void>; reject: () => Promise<void> }
@@ -623,6 +642,12 @@ function Dashboard({
   monthKey: string
   onMonthChange: (monthKey: string) => void
 }) {
+  const [viewer, setViewer] = useState<ViewerId>(sessionViewer)
+  const changeViewer = (next: ViewerId) => {
+    sessionViewer = next
+    setViewer(next)
+  }
+
   return (
     <section className="dashboard-wrap">
       <div className="section-header">
@@ -634,6 +659,17 @@ function Dashboard({
           Month
           <input type="month" value={monthKey} onChange={(event) => onMonthChange(event.target.value || currentMonthKey())} />
         </label>
+      </div>
+
+      <div className="viewer-switch">
+        <span className="small-label">Viewing as</span>
+        <div className="segmented-control">
+          {VIEWER_OPTIONS.map((option) => (
+            <button key={option.id} type="button" className={viewer === option.id ? 'active' : ''} onClick={() => changeViewer(option.id)}>
+              {option.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="month-summary">
@@ -651,35 +687,7 @@ function Dashboard({
       {bucketGroups.map((group) => {
         const balances = ledger.balances.filter((balance) => balance.bucket.kind === group.kind)
         if (!balances.length && group.kind !== 'spending') return null
-        return (
-          <div className="bucket-group" key={group.kind}>
-            <div className="bucket-group-header">
-              <h3>{group.title}</h3>
-              {group.hint ? <span className="small-label">{group.hint}</span> : null}
-            </div>
-            {balances.length ? (
-              <div className="dashboard">
-                {balances.map((balance) => (
-                  <article
-                    className={`money-card ${groupTones[group.kind]} ${balance.totals.some((total) => total.amount < 0) ? 'warning' : ''}`}
-                    key={balance.bucket.id}
-                  >
-                    <div className="card-label">
-                      {balance.bucket.name}
-                      <span className="type-chip">{ownerNames[balance.bucket.ownerId]}</span>
-                    </div>
-                    <strong>{formatBuckets(balance.totals)}</strong>
-                    <p className="month-flow">
-                      {formatMonth(monthKey)}: +{formatBuckets(balance.monthIn, '0')} · −{formatBuckets(balance.monthOut, '0')}
-                    </p>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <p className="empty-state">No buckets here yet.</p>
-            )}
-          </div>
-        )
+        return <BucketGroupView key={group.kind} group={group} balances={balances} viewer={viewer} monthKey={monthKey} />
       })}
 
       {ledger.negativeWarnings.length ? (
@@ -689,6 +697,69 @@ function Dashboard({
         </div>
       ) : null}
     </section>
+  )
+}
+
+function BucketGroupView({
+  group,
+  balances,
+  viewer,
+  monthKey,
+}: {
+  group: { kind: BucketKind; title: string; hint?: string }
+  balances: LedgerSnapshot['balances']
+  viewer: ViewerId
+  monthKey: string
+}) {
+  const [showPartner, setShowPartner] = useState(false)
+  const partner: BucketOwner | null = viewer === 'moon' ? 'alena' : viewer === 'alena' ? 'moon' : null
+
+  const ordered = [...balances].sort(
+    (a, b) =>
+      ownerRank(a.bucket.ownerId, viewer) - ownerRank(b.bucket.ownerId, viewer) || a.bucket.name.localeCompare(b.bucket.name),
+  )
+  const primary = partner ? ordered.filter((balance) => balance.bucket.ownerId !== partner) : ordered
+  const secondary = partner ? ordered.filter((balance) => balance.bucket.ownerId === partner) : []
+
+  const renderCard = (balance: LedgerSnapshot['balances'][number]) => {
+    const isMine = viewer !== 'all' && balance.bucket.ownerId === viewer
+    return (
+      <article
+        className={`money-card ${groupTones[group.kind]} ${isMine ? 'mine' : ''} ${balance.totals.some((total) => total.amount < 0) ? 'warning' : ''}`}
+        key={balance.bucket.id}
+      >
+        <div className="card-label">
+          {balance.bucket.name}
+          <span className="type-chip">{isMine ? 'You' : ownerNames[balance.bucket.ownerId]}</span>
+        </div>
+        <strong>{formatBuckets(balance.totals)}</strong>
+        <p className="month-flow">
+          {formatMonth(monthKey)}: +{formatBuckets(balance.monthIn, '0')} · −{formatBuckets(balance.monthOut, '0')}
+        </p>
+      </article>
+    )
+  }
+
+  return (
+    <div className="bucket-group">
+      <div className="bucket-group-header">
+        <h3>{group.title}</h3>
+        {group.hint ? <span className="small-label">{group.hint}</span> : null}
+      </div>
+      {primary.length ? (
+        <div className="dashboard">{primary.map(renderCard)}</div>
+      ) : secondary.length ? null : (
+        <p className="empty-state">No buckets here yet.</p>
+      )}
+      {secondary.length && partner ? (
+        <div className="partner-block">
+          <button type="button" className="ghost-button show-more-button" onClick={() => setShowPartner((value) => !value)}>
+            {showPartner ? 'Hide' : 'Show'} {ownerNames[partner]}’s money ({secondary.length})
+          </button>
+          {showPartner ? <div className="dashboard muted-group">{secondary.map(renderCard)}</div> : null}
+        </div>
+      ) : null}
+    </div>
   )
 }
 
