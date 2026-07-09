@@ -49,7 +49,7 @@ import {
   updateTransaction,
 } from './db/actions'
 import { backupFileName, exportBackup, parseBackup, restoreBackup } from './db/backup'
-import { computeLedger } from './lib/ledger'
+import { computeLedger, monthFlowTotals } from './lib/ledger'
 import type {
   AppSettings,
   Bucket,
@@ -233,7 +233,15 @@ function FinanceApp() {
           {invites && invites.length > 0 ? <InvitePanel invites={invites} /> : null}
           <TabBar tab={tab} setTab={setTab} />
 
-          {tab === 'home' ? <Dashboard ledger={ledger} monthKey={monthKey} onMonthChange={setMonthKey} /> : null}
+          {tab === 'home' ? (
+            <Dashboard
+              ledger={ledger}
+              monthKey={monthKey}
+              onMonthChange={setMonthKey}
+              transactions={transactions ?? []}
+              buckets={buckets ?? []}
+            />
+          ) : null}
 
           {tab === 'add' ? (
             <RecordMoney
@@ -637,16 +645,29 @@ function Dashboard({
   ledger,
   monthKey,
   onMonthChange,
+  transactions,
+  buckets,
 }: {
   ledger: LedgerSnapshot
   monthKey: string
   onMonthChange: (monthKey: string) => void
+  transactions: Transaction[]
+  buckets: Bucket[]
 }) {
   const [viewer, setViewer] = useState<ViewerId>(sessionViewer)
   const changeViewer = (next: ViewerId) => {
     sessionViewer = next
     setViewer(next)
   }
+
+  const monthTotals = useMemo(() => {
+    const owners: BucketOwner[] | null =
+      viewer === 'moon' ? ['moon', 'shared'] : viewer === 'alena' ? ['alena', 'shared'] : null
+    return monthFlowTotals(buckets, transactions, monthKey, owners)
+  }, [buckets, transactions, monthKey, viewer])
+
+  const scopeNote =
+    viewer === 'all' ? 'business money not counted' : `${ownerNames[viewer]} + shared · business not counted`
 
   return (
     <section className="dashboard-wrap">
@@ -675,13 +696,15 @@ function Dashboard({
       <div className="month-summary">
         <span className="summary-item in">
           <ArrowDownToLine size={16} />
-          Money in: +{formatBuckets(ledger.monthIncome, '0')}
+          Money in: +{formatBuckets(monthTotals.income, '0')}
         </span>
         <span className="summary-item out">
           <ArrowUpFromLine size={16} />
-          Spent: −{formatBuckets(ledger.monthSpending, '0')}
+          Spent: −{formatBuckets(monthTotals.spending, '0')}
         </span>
-        <span className="small-label">{formatMonth(monthKey)} · business money not counted</span>
+        <span className="small-label">
+          {formatMonth(monthKey)} · {scopeNote}
+        </span>
       </div>
 
       {bucketGroups.map((group) => {

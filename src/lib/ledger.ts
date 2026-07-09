@@ -1,4 +1,4 @@
-import type { Bucket, BucketBalance, LedgerSnapshot, MoneyBucket, Transaction } from '../types'
+import type { Bucket, BucketBalance, BucketOwner, LedgerSnapshot, MoneyBucket, Transaction } from '../types'
 import { monthKeyFromDate } from '../utils/date'
 import { formatMoney, roundMoney } from '../utils/money'
 
@@ -89,6 +89,43 @@ export function computeLedger(buckets: Bucket[], transactions: Transaction[], mo
   )
 
   return { balances, monthIncome: mapToBuckets(monthIncome), monthSpending: mapToBuckets(monthSpending), negativeWarnings }
+}
+
+/**
+ * Month "money in" and "spent" totals, optionally narrowed to buckets owned by `owners`.
+ * Same rules as the dashboard summary: income counts income-type transactions; spending
+ * counts expense-type from non-business buckets. `owners = null` means every owner.
+ */
+export function monthFlowTotals(
+  buckets: Bucket[],
+  transactions: Transaction[],
+  monthKey: string,
+  owners: BucketOwner[] | null,
+): { income: MoneyBucket[]; spending: MoneyBucket[] } {
+  const bucketById = new Map(buckets.map((bucket) => [bucket.id, bucket]))
+  const income = new Map<string, number>()
+  const spending = new Map<string, number>()
+  const ownerAllowed = (bucketId: string) => {
+    if (!owners) return true
+    const owner = bucketById.get(bucketId)?.ownerId
+    return owner ? owners.includes(owner) : false
+  }
+
+  for (const transaction of transactions) {
+    if (monthKeyFromDate(transaction.date) !== monthKey) continue
+    if (transaction.type === 'income' && ownerAllowed(transaction.bucketId)) {
+      addMoney(income, transaction.currency, transaction.amount)
+    }
+    if (
+      transaction.type === 'expense' &&
+      bucketById.get(transaction.bucketId)?.kind !== 'business' &&
+      ownerAllowed(transaction.bucketId)
+    ) {
+      addMoney(spending, transaction.currency, transaction.amount)
+    }
+  }
+
+  return { income: mapToBuckets(income), spending: mapToBuckets(spending) }
 }
 
 export function balanceForBucket(snapshot: LedgerSnapshot, bucketId: string): MoneyBucket[] {

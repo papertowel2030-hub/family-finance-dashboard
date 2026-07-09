@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeLedger } from './ledger'
+import { computeLedger, monthFlowTotals } from './ledger'
 import type { Bucket, Transaction, TransactionType } from '../types'
 
 const now = '2026-07-01T00:00:00.000Z'
@@ -151,5 +151,36 @@ describe('computeLedger', () => {
     const snapshot = computeLedger([alena, archived], [txn('income', archived.id, 1000, '2026-07-01')])
 
     expect(snapshot.balances.map((balance) => balance.bucket.id)).toEqual([alena.id])
+  })
+})
+
+describe('monthFlowTotals', () => {
+  const moon = bucket('b_moon', 'Moon', 'spending', 'moon')
+  const all = [moon, alena, family, business]
+  const transactions = [
+    txn('income', moon.id, 100000, '2026-07-01'),
+    txn('income', alena.id, 60000, '2026-07-02'),
+    txn('income', family.id, 5000, '2026-07-02'),
+    txn('funding', business.id, 20000, '2026-07-03'),
+    txn('expense', moon.id, 8000, '2026-07-04'),
+    txn('expense', family.id, 3000, '2026-07-04'),
+    txn('expense', business.id, 5000, '2026-07-05'),
+    txn('income', moon.id, 999, '2026-06-15'),
+  ]
+
+  it('totals everyone when no owners are given', () => {
+    const totals = monthFlowTotals(all, transactions, '2026-07', null)
+    // Moon + Alena + Family income; business funding excluded; June excluded.
+    expect(totals.income).toEqual([{ currency: 'RUB', amount: 165000 }])
+    // Moon + Family expenses; business expense excluded.
+    expect(totals.spending).toEqual([{ currency: 'RUB', amount: 11000 }])
+  })
+
+  it('narrows to the viewer plus shared, leaving the partner out', () => {
+    const totals = monthFlowTotals(all, transactions, '2026-07', ['moon', 'shared'])
+    // Moon (100000) + Family (5000); Alena's 60000 excluded.
+    expect(totals.income).toEqual([{ currency: 'RUB', amount: 105000 }])
+    // Moon (8000) + Family (3000).
+    expect(totals.spending).toEqual([{ currency: 'RUB', amount: 11000 }])
   })
 })
