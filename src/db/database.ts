@@ -4,6 +4,21 @@ import type { AppSettings, Bucket, Category, IncomeSource, Transaction } from '.
 
 const cloudUrl = import.meta.env.VITE_DEXIE_CLOUD_URL as string | undefined
 
+// The "@" primary-key marker is only meaningful to the Dexie Cloud addon's own
+// dbcore middleware — with no addon attached, raw IndexedDB rejects "@id" as an
+// invalid keyPath outright, breaking local-only mode entirely. Only use the
+// cloud-required shape when the addon is actually attached.
+const cloudRealmTables = {
+  realms: '@realmId',
+  members: '@id, [userId+realmId], [email+realmId], realmId',
+  roles: '[realmId+name]',
+}
+const localRealmTables = {
+  realms: 'realmId',
+  members: 'id,[email+realmId],realmId,email',
+  roles: '[realmId+name]',
+}
+
 export class FinanceDatabase extends Dexie {
   settings!: Table<AppSettings, string>
   buckets!: Table<Bucket, string>
@@ -17,6 +32,8 @@ export class FinanceDatabase extends Dexie {
     // realms/members/roles must match Dexie Cloud's required schema exactly, in every
     // version — the addon validates each version definition, not just the latest.
     // No real invite has ever gone through these tables, so it's safe to correct them here.
+    const realmTables = cloudUrl ? cloudRealmTables : localRealmTables
+
     this.version(2).stores({
       settings: 'id, realmId, activeMonthKey',
       businesses: 'id, realmId, name, ownerId, archived',
@@ -25,9 +42,7 @@ export class FinanceDatabase extends Dexie {
       transactions: 'id, realmId, date, type, ownerId, sourceBusinessId, categoryId',
       transactionSplits: 'id, realmId, transactionId, date, target, ownerId, businessId, assetId, categoryId, currency',
       monthClosures: 'id, realmId, monthKey, closedAt',
-      realms: '@realmId',
-      members: '@id, [userId+realmId], [email+realmId], realmId',
-      roles: '[realmId+name]',
+      ...realmTables,
     })
 
     // v3: buckets + sources model. Old split-based tables are dropped and
@@ -43,9 +58,7 @@ export class FinanceDatabase extends Dexie {
         assetItems: null,
         transactionSplits: null,
         monthClosures: null,
-        realms: '@realmId',
-        members: '@id, [userId+realmId], [email+realmId], realmId',
-        roles: '[realmId+name]',
+        ...realmTables,
       })
       .upgrade(async (tx) => {
         await Promise.all([tx.table('settings').clear(), tx.table('categories').clear(), tx.table('transactions').clear()])

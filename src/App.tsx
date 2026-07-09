@@ -5,6 +5,8 @@ import {
   ArrowDownToLine,
   ArrowLeftRight,
   ArrowUpFromLine,
+  ChevronDown,
+  ChevronUp,
   CircleAlert,
   Cloud,
   CloudOff,
@@ -1425,6 +1427,8 @@ function ChartBlock({ title, rows }: { title: string; rows: Array<{ label: strin
   )
 }
 
+const HISTORY_PAGE_SIZE = 15
+
 function History({
   transactions,
   buckets,
@@ -1442,15 +1446,30 @@ function History({
   onDelete: (transaction: Transaction) => void
   onRepeat: (transaction: Transaction) => void
 }) {
+  const [open, setOpen] = useState(() => localStorage.getItem('financeHistoryOpen') !== '0')
+  const [visibleCount, setVisibleCount] = useState(HISTORY_PAGE_SIZE)
+
+  useEffect(() => {
+    setVisibleCount(HISTORY_PAGE_SIZE)
+  }, [transactions])
+
+  const toggleOpen = () => {
+    const next = !open
+    setOpen(next)
+    localStorage.setItem('financeHistoryOpen', next ? '1' : '0')
+  }
+
   return (
     <section className="history panel">
-      <div className="section-header compact">
-        <h2>History</h2>
-        <Coins size={20} />
-      </div>
-      {transactions.length ? (
+      <button type="button" className="section-header compact history-toggle" onClick={toggleOpen}>
+        <h2>
+          History <span className="small-label">({transactions.length})</span>
+        </h2>
+        {open ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+      </button>
+      {open && transactions.length ? (
         <div className="transaction-list">
-          {transactions.map((transaction) => (
+          {transactions.slice(0, visibleCount).map((transaction) => (
             <article className="transaction-row" key={transaction.id}>
               <div className="transaction-main">
                 <span className={`type-chip ${transaction.type}`}>{transactionLabels[transaction.type]}</span>
@@ -1489,10 +1508,15 @@ function History({
               </div>
             </article>
           ))}
+          {visibleCount < transactions.length ? (
+            <button type="button" className="ghost-button show-more-button" onClick={() => setVisibleCount((count) => count + HISTORY_PAGE_SIZE)}>
+              Show {Math.min(HISTORY_PAGE_SIZE, transactions.length - visibleCount)} more
+            </button>
+          ) : null}
         </div>
-      ) : (
+      ) : open ? (
         <p className="empty-state">No transactions.</p>
-      )}
+      ) : null}
     </section>
   )
 }
