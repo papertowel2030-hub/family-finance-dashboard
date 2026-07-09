@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery, useObservable } from 'dexie-react-hooks'
 import { BehaviorSubject } from 'rxjs'
 import {
@@ -17,12 +17,15 @@ import {
   LogIn,
   LogOut,
   Plus,
+  PlusCircle,
+  Receipt,
   RefreshCcw,
   Repeat,
   Search,
   Settings,
   ShieldCheck,
   Trash2,
+  Wallet,
 } from 'lucide-react'
 import type { DXCInputField, DXCUserInteraction } from 'dexie-cloud-addon'
 import { db, getDexieCloudUrl, isCloudConfigured } from './db/database'
@@ -99,6 +102,18 @@ const groupTones: Record<BucketKind, string> = {
   savings: 'teal',
 }
 
+type Tab = 'home' | 'add' | 'activity' | 'setup'
+
+const TABS: Array<{ id: Tab; label: string; Icon: typeof Wallet }> = [
+  { id: 'home', label: 'Home', Icon: Wallet },
+  { id: 'add', label: 'Add', Icon: PlusCircle },
+  { id: 'activity', label: 'Activity', Icon: Receipt },
+  { id: 'setup', label: 'Setup', Icon: Settings },
+]
+
+// Currencies Moon & Alena actually use, offered as a datalist while still allowing any free text.
+const COMMON_CURRENCIES = ['RUB', 'USD', 'EUR', 'GBP', 'AED', 'TRY', 'GEL', 'KZT', 'INR']
+
 type CloudUser = { isLoggedIn?: boolean; name?: string; email?: string }
 type CloudSyncState = { status?: string }
 type CloudInvite = { id: string; roles?: string[]; realm?: { name?: string }; accept: () => Promise<void>; reject: () => Promise<void> }
@@ -158,12 +173,12 @@ function FinanceApp() {
     (isCloudConfigured ? db.cloud.userInteraction : offlineInteraction$) as never,
   ) as DXCUserInteraction | undefined
 
+  const [tab, setTab] = useState<Tab>('home')
   const [filters, setFilters] = useState<Filters>(emptyFilters)
   const [editing, setEditing] = useState<Transaction | null>(null)
   const [monthKey, setMonthKey] = useState(currentMonthKey())
   const [justDeleted, setJustDeleted] = useState<Transaction | null>(null)
   const [prefill, setPrefill] = useState<{ transaction: Transaction; key: number } | null>(null)
-  const recordRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     if (!justDeleted) return
@@ -198,41 +213,54 @@ function FinanceApp() {
       ) : (
         <>
           {invites && invites.length > 0 ? <InvitePanel invites={invites} /> : null}
-          <Dashboard ledger={ledger} monthKey={monthKey} onMonthChange={setMonthKey} />
-          <RecordMoney
-            settings={settings}
-            buckets={activeBuckets}
-            sources={sources ?? []}
-            categories={categories ?? []}
-            prefill={prefill}
-            scrollRef={recordRef}
-          />
-          <section className="analytics-band">
-            <FiltersPanel filters={filters} setFilters={setFilters} buckets={buckets ?? []} sources={sources ?? []} categories={categories ?? []} />
-            <Charts transactions={filteredTransactions} buckets={buckets ?? []} sources={sources ?? []} categories={categories ?? []} />
-          </section>
-          <History
-            transactions={filteredTransactions}
-            buckets={buckets ?? []}
-            sources={sources ?? []}
-            categories={categories ?? []}
-            onEdit={setEditing}
-            onDelete={async (transaction) => {
-              await deleteTransaction(transaction.id)
-              setJustDeleted(transaction)
-            }}
-            onRepeat={(transaction) => {
-              setPrefill({ transaction, key: Date.now() })
-              recordRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-            }}
-          />
-          <ManagementPanel
-            settings={settings}
-            buckets={buckets ?? []}
-            sources={sources ?? []}
-            categories={categories ?? []}
-            ledger={ledger}
-          />
+          <TabBar tab={tab} setTab={setTab} />
+
+          {tab === 'home' ? <Dashboard ledger={ledger} monthKey={monthKey} onMonthChange={setMonthKey} /> : null}
+
+          {tab === 'add' ? (
+            <RecordMoney
+              settings={settings}
+              buckets={activeBuckets}
+              sources={sources ?? []}
+              categories={categories ?? []}
+              prefill={prefill}
+            />
+          ) : null}
+
+          {tab === 'activity' ? (
+            <>
+              <section className="analytics-band">
+                <FiltersPanel filters={filters} setFilters={setFilters} buckets={buckets ?? []} sources={sources ?? []} categories={categories ?? []} />
+                <Charts transactions={filteredTransactions} buckets={buckets ?? []} sources={sources ?? []} categories={categories ?? []} />
+              </section>
+              <History
+                transactions={filteredTransactions}
+                buckets={buckets ?? []}
+                sources={sources ?? []}
+                categories={categories ?? []}
+                onEdit={setEditing}
+                onDelete={async (transaction) => {
+                  await deleteTransaction(transaction.id)
+                  setJustDeleted(transaction)
+                }}
+                onRepeat={(transaction) => {
+                  setPrefill({ transaction, key: Date.now() })
+                  setTab('add')
+                }}
+              />
+            </>
+          ) : null}
+
+          {tab === 'setup' ? (
+            <ManagementPanel
+              settings={settings}
+              buckets={buckets ?? []}
+              sources={sources ?? []}
+              categories={categories ?? []}
+              ledger={ledger}
+            />
+          ) : null}
+
           {editing ? (
             <EditTransactionDialog
               transaction={editing}
@@ -261,6 +289,25 @@ function FinanceApp() {
         </>
       )}
     </main>
+  )
+}
+
+function TabBar({ tab, setTab }: { tab: Tab; setTab: (tab: Tab) => void }) {
+  return (
+    <nav className="tab-bar" aria-label="Sections">
+      {TABS.map(({ id, label, Icon }) => (
+        <button
+          key={id}
+          type="button"
+          className={tab === id ? 'active' : ''}
+          aria-current={tab === id ? 'page' : undefined}
+          onClick={() => setTab(id)}
+        >
+          <Icon size={22} />
+          <span>{label}</span>
+        </button>
+      ))}
+    </nav>
   )
 }
 
@@ -656,14 +703,12 @@ function RecordMoney({
   sources,
   categories,
   prefill,
-  scrollRef,
 }: {
   settings: AppSettings
   buckets: Bucket[]
   sources: IncomeSource[]
   categories: Category[]
   prefill: { transaction: Transaction; key: number } | null
-  scrollRef: React.RefObject<HTMLElement | null>
 }) {
   const [mode, setMode] = useState<RecordMode>('in')
 
@@ -706,7 +751,7 @@ function RecordMoney({
       : undefined
 
   return (
-    <section className="fast-add" ref={scrollRef}>
+    <section className="fast-add">
       <div className="section-header">
         <div>
           <p className="eyebrow">Fast add</p>
@@ -811,21 +856,14 @@ function MoneyInForm({
         setNote('')
       }}
     >
+      <AmountCurrencyRow amount={amount} setAmount={setAmount} currency={currency} setCurrency={setCurrency} />
       <div className="form-grid">
+        <BucketSelect label="Into bucket" buckets={buckets} value={bucketId} onChange={setBucketId} />
+        {!isFunding ? <SuggestField label="Source" listId="income-sources" value={sourceName} onChange={setSourceName} names={sources.filter((source) => !source.archived).map((source) => source.name)} placeholder="e.g. Teaching, Salary" /> : null}
         <label>
           Date
           <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
         </label>
-        <label>
-          Amount
-          <input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0" />
-        </label>
-        <label>
-          Currency
-          <input value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} />
-        </label>
-        <BucketSelect label="Into bucket" buckets={buckets} value={bucketId} onChange={setBucketId} />
-        {!isFunding ? <SuggestField label="Source" listId="income-sources" value={sourceName} onChange={setSourceName} names={sources.filter((source) => !source.archived).map((source) => source.name)} placeholder="e.g. Teaching, Salary" /> : null}
         <label>
           Note
           <input value={note} onChange={(event) => setNote(event.target.value)} />
@@ -876,21 +914,14 @@ function ExpenseForm({
         setNote('')
       }}
     >
+      <AmountCurrencyRow amount={amount} setAmount={setAmount} currency={currency} setCurrency={setCurrency} />
       <div className="form-grid">
+        <BucketSelect label="Paid from" buckets={buckets} value={bucketId} onChange={setBucketId} />
+        <SuggestField label="Category" listId="expense-categories" value={categoryName} onChange={setCategoryName} names={categories.filter((category) => !category.archived).map((category) => category.name)} placeholder="e.g. Groceries" />
         <label>
           Date
           <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
         </label>
-        <label>
-          Amount
-          <input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0" />
-        </label>
-        <label>
-          Currency
-          <input value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} />
-        </label>
-        <BucketSelect label="Paid from" buckets={buckets} value={bucketId} onChange={setBucketId} />
-        <SuggestField label="Category" listId="expense-categories" value={categoryName} onChange={setCategoryName} names={categories.filter((category) => !category.archived).map((category) => category.name)} placeholder="e.g. Groceries" />
         <label>
           Note
           <input value={note} onChange={(event) => setNote(event.target.value)} />
@@ -937,21 +968,14 @@ function TransferForm({
         setNote('')
       }}
     >
+      <AmountCurrencyRow amount={amount} setAmount={setAmount} currency={currency} setCurrency={setCurrency} />
       <div className="form-grid">
+        <BucketSelect label="From" buckets={buckets} value={fromBucketId} onChange={setFromBucketId} />
+        <BucketSelect label="To" buckets={buckets} value={toBucketId} onChange={setToBucketId} />
         <label>
           Date
           <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
         </label>
-        <label>
-          Amount
-          <input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0" />
-        </label>
-        <label>
-          Currency
-          <input value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} />
-        </label>
-        <BucketSelect label="From" buckets={buckets} value={fromBucketId} onChange={setFromBucketId} />
-        <BucketSelect label="To" buckets={buckets} value={toBucketId} onChange={setToBucketId} />
         <label>
           Note
           <input value={note} onChange={(event) => setNote(event.target.value)} />
@@ -963,6 +987,40 @@ function TransferForm({
         Save transfer
       </button>
     </form>
+  )
+}
+
+function AmountCurrencyRow({
+  amount,
+  setAmount,
+  currency,
+  setCurrency,
+}: {
+  amount: string
+  setAmount: (value: string) => void
+  currency: string
+  setCurrency: (value: string) => void
+}) {
+  return (
+    <div className="amount-row">
+      <label className="amount-field">
+        Amount
+        <input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0" />
+      </label>
+      <label className="currency-field">
+        Currency
+        <input
+          list="common-currencies"
+          value={currency}
+          onChange={(event) => setCurrency(event.target.value.toUpperCase())}
+        />
+        <datalist id="common-currencies">
+          {COMMON_CURRENCIES.map((code) => (
+            <option key={code} value={code} />
+          ))}
+        </datalist>
+      </label>
+    </div>
   )
 }
 

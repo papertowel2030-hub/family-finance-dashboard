@@ -840,6 +840,54 @@ h3 {
   font-weight: 900;
 }
 
+.tab-bar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 18px;
+  padding: 6px;
+  background: rgba(255, 250, 242, 0.92);
+  border: 1px solid rgba(222, 213, 200, 0.82);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  position: sticky;
+  top: 12px;
+  z-index: 30;
+  backdrop-filter: blur(6px);
+}
+
+.tab-bar button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.tab-bar button.active {
+  background: var(--ink);
+  color: #fffaf2;
+}
+
+.amount-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(112px, 0.36fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.amount-field input {
+  min-height: 62px;
+  font-size: clamp(1.6rem, 4vw, 2.1rem);
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
 @media (max-width: 900px) {
   .topbar,
   .section-header,
@@ -869,6 +917,38 @@ h3 {
   .app-shell {
     width: min(100% - 20px, 1180px);
     padding-top: 18px;
+    padding-bottom: calc(84px + env(safe-area-inset-bottom));
+  }
+
+  .tab-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    margin: 0;
+    padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    z-index: 50;
+  }
+
+  .tab-bar button {
+    flex-direction: column;
+    gap: 3px;
+    min-height: 50px;
+    font-size: 0.68rem;
+  }
+
+  .tab-bar button.active {
+    background: transparent;
+    color: var(--blue);
+  }
+
+  .amount-row {
+    grid-template-columns: minmax(0, 1fr) minmax(96px, 0.4fr);
   }
 
   .top-actions,
