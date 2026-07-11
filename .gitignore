@@ -7,3 +7,4 @@ dist
 public/dexie-cloud-addon-service-worker.js
 family-finance-backup-*.json
 dexie-cloud.key
+dexie-cloud.json
