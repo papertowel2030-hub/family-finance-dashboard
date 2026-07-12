@@ -1342,7 +1342,8 @@ function FixBalanceForm({ settings, buckets, ledger }: { settings: AppSettings; 
         event.preventDefault()
         setMessage('')
         const parsed = parseAmount(balance)
-        if (!bucketId || !Number.isFinite(parsed)) return
+        if (!bucketId) return
+        if (!balance.trim() || !Number.isFinite(parsed)) return setMessage('Enter the real balance first.')
         const delta = roundMoney(parsed - current)
         if (delta === 0) return setMessage('Balance already matches.')
         await saveAdjustment({
