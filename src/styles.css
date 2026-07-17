@@ -154,6 +154,17 @@ h3 {
   border-color: rgba(93, 127, 116, 0.2);
 }
 
+.sync-badge.error {
+  background: #f6dfd8;
+  color: #8a2f20;
+  border-color: rgba(138, 47, 32, 0.2);
+}
+
+.sync-badge:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
 .sync-badge.muted,
 .ghost-button {
   background: transparent;

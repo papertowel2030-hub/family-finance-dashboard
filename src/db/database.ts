@@ -45,8 +45,8 @@ export class FinanceDatabase extends Dexie {
       ...realmTables,
     })
 
-    // v3: buckets + sources model. Old split-based tables are dropped and
-    // their test data cleared (no real data existed before this version).
+    // v3: buckets + sources model. Do not run content migrations against these
+    // synced tables: a per-device clear can cause data loss and divergence.
     this.version(3)
       .stores({
         settings: 'id, realmId',
@@ -60,9 +60,6 @@ export class FinanceDatabase extends Dexie {
         monthClosures: null,
         ...realmTables,
       })
-      .upgrade(async (tx) => {
-        await Promise.all([tx.table('settings').clear(), tx.table('categories').clear(), tx.table('transactions').clear()])
-      })
 
     if (cloudUrl) {
       this.cloud.configure({
@@ -70,7 +67,9 @@ export class FinanceDatabase extends Dexie {
         requireAuth: true,
         // The app has its own AuthButton/login form; skip the addon's built-in modal.
         customLoginGui: true,
-        tryUseServiceWorker: import.meta.env.PROD,
+        // Keep one observable sync owner. The app explicitly reconciles while
+        // open instead of delegating sync to an opaque background worker.
+        tryUseServiceWorker: false,
       })
     }
   }

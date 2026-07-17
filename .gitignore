@@ -6,5 +6,6 @@ dist
 !.env.example
 public/dexie-cloud-addon-service-worker.js
 family-finance-backup-*.json
+Backups/
 dexie-cloud.key
 dexie-cloud.json

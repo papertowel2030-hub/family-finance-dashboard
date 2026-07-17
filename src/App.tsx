@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery, useObservable } from 'dexie-react-hooks'
+import type { Table } from 'dexie'
 import { BehaviorSubject } from 'rxjs'
 import {
   ArrowDownToLine,
@@ -48,7 +49,8 @@ import {
   updateDefaultCurrency,
   updateTransaction,
 } from './db/actions'
-import { backupFileName, exportBackup, parseBackup, restoreBackup } from './db/backup'
+import { backupFileName, exportBackup, mergeBackup, parseBackup } from './db/backup'
+import { reconcileCloud } from './db/sync'
 import { computeLedger, monthFlowTotals } from './lib/ledger'
 import type {
   AppSettings,
@@ -64,7 +66,6 @@ import type {
 } from './types'
 import { currentMonthKey, formatMonth, formatShortDate, todayInputDate } from './utils/date'
 import { formatBuckets, formatMoney, parseAmount, roundMoney } from './utils/money'
-import { isUsingFallbackIndexedDb } from './storageBootstrap'
 
 const ownerNames: Record<BucketOwner, string> = {
   moon: 'Moon',
@@ -133,7 +134,7 @@ function ownerRank(ownerId: BucketOwner, viewer: ViewerId) {
 }
 
 type CloudUser = { isLoggedIn?: boolean; name?: string; email?: string }
-type CloudSyncState = { status?: string }
+type CloudSyncState = { status?: string; phase?: string; error?: Error }
 type CloudInvite = { id: string; roles?: string[]; realm?: { name?: string }; accept: () => Promise<void>; reject: () => Promise<void> }
 
 const offlineUser$ = new BehaviorSubject<CloudUser>({ isLoggedIn: false })
@@ -180,10 +181,27 @@ function App() {
 
 function FinanceApp() {
   const settings = useLiveQuery(() => db.settings.toArray().then((rows) => rows[0] ?? null), [], null)
-  const buckets = useLiveQuery(() => db.buckets.orderBy('name').toArray(), [], [])
-  const sources = useLiveQuery(() => db.incomeSources.orderBy('name').toArray(), [], [])
-  const categories = useLiveQuery(() => db.categories.orderBy('name').toArray(), [], [])
-  const transactions = useLiveQuery(() => db.transactions.orderBy('date').reverse().toArray(), [], [])
+  const activeRealmId = settings?.realmId
+  const buckets = useLiveQuery(
+    () => rowsInRealm(db.buckets, activeRealmId).then((rows) => rows.sort((a, b) => a.name.localeCompare(b.name))),
+    [activeRealmId],
+    [],
+  )
+  const sources = useLiveQuery(
+    () => rowsInRealm(db.incomeSources, activeRealmId).then((rows) => rows.sort((a, b) => a.name.localeCompare(b.name))),
+    [activeRealmId],
+    [],
+  )
+  const categories = useLiveQuery(
+    () => rowsInRealm(db.categories, activeRealmId).then((rows) => rows.sort((a, b) => a.name.localeCompare(b.name))),
+    [activeRealmId],
+    [],
+  )
+  const transactions = useLiveQuery(
+    () => rowsInRealm(db.transactions, activeRealmId).then((rows) => rows.sort((a, b) => b.date.localeCompare(a.date))),
+    [activeRealmId],
+    [],
+  )
   const currentUser = useObservable((isCloudConfigured ? db.cloud.currentUser : offlineUser$) as never) as CloudUser | undefined
   const syncState = useObservable((isCloudConfigured ? db.cloud.syncState : offlineSync$) as never) as CloudSyncState | undefined
   const invites = useObservable((isCloudConfigured ? db.cloud.invites : offlineInvites$) as never, []) as CloudInvite[] | undefined
@@ -223,7 +241,6 @@ function FinanceApp() {
         </div>
       </header>
 
-      {isUsingFallbackIndexedDb() ? <PreviewStorageNotice /> : null}
       <UserInteractionDialog interaction={userInteraction} />
 
       {!settings ? (
@@ -332,21 +349,6 @@ function TabBar({ tab, setTab }: { tab: Tab; setTab: (tab: Tab) => void }) {
         </button>
       ))}
     </nav>
-  )
-}
-
-function PreviewStorageNotice() {
-  return (
-    <section className="notice-panel preview-storage">
-      <div>
-        <p className="eyebrow">Preview storage</p>
-        <h2>Running without browser IndexedDB</h2>
-      </div>
-      <p className="quiet-line">
-        This browser does not expose persistent IndexedDB, so this session uses temporary in-memory storage. Use Chrome, Safari,
-        Arc, Firefox, or another regular browser window for real offline persistence.
-      </p>
-    </section>
   )
 }
 
@@ -472,6 +474,11 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T) {
   })
 }
 
+async function rowsInRealm<T extends { realmId?: string }>(table: Table<T, string>, realmId?: string) {
+  const rows = await table.toArray()
+  return rows.filter((row) => row.realmId === realmId)
+}
+
 function StorageUnavailablePanel() {
   return (
     <section className="setup-panel">
@@ -498,8 +505,43 @@ function SyncBadge({
   syncState,
 }: {
   currentUser?: { isLoggedIn?: boolean; name?: string; email?: string }
-  syncState?: { status?: string }
+  syncState?: CloudSyncState
 }) {
+  const loggedIn = Boolean(currentUser?.isLoggedIn)
+  const [runState, setRunState] = useState<{ status: 'idle' | 'running' | 'error'; error?: string }>({ status: 'idle' })
+  const running = useRef<Promise<void> | null>(null)
+
+  const syncNow = useCallback(() => {
+    if (!isCloudConfigured || !loggedIn) return Promise.resolve()
+    if (running.current) return running.current
+
+    setRunState({ status: 'running' })
+    const task = reconcileCloud(db.cloud)
+      .then(({ completedAt }) => {
+        localStorage.setItem('familyFinanceLastSync', completedAt)
+        setRunState({ status: 'idle' })
+      })
+      .catch((error) => {
+        setRunState({ status: 'error', error: error instanceof Error ? error.message : String(error) })
+      })
+      .finally(() => {
+        running.current = null
+      })
+    running.current = task
+    return task
+  }, [loggedIn])
+
+  useEffect(() => {
+    if (!loggedIn) {
+      setRunState({ status: 'idle' })
+      return
+    }
+    void syncNow()
+    const onOnline = () => void syncNow()
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [loggedIn, syncNow])
+
   if (!isCloudConfigured) {
     return (
       <span className="sync-badge muted">
@@ -508,11 +550,35 @@ function SyncBadge({
       </span>
     )
   }
+
+  const cloudError = runState.error || syncState?.error?.message
+  const isRunning = runState.status === 'running' || syncState?.phase === 'pulling' || syncState?.phase === 'pushing'
+  const isError = runState.status === 'error' || syncState?.status === 'error' || syncState?.phase === 'error'
+  const isOffline = syncState?.status === 'offline' || syncState?.status === 'disconnected' || syncState?.phase === 'offline'
+  const label = !loggedIn
+    ? 'Sign in'
+    : isError
+      ? 'Sync failed'
+      : isRunning
+        ? 'Syncing…'
+        : isOffline
+          ? 'Offline'
+          : syncState?.phase === 'in-sync'
+            ? 'Synced'
+            : 'Not synced'
+
   return (
-    <span className="sync-badge">
+    <button
+      type="button"
+      className={`sync-badge ${isError ? 'error' : isOffline ? 'muted' : ''}`}
+      disabled={!loggedIn || isRunning}
+      onClick={() => void syncNow()}
+      title={cloudError || (loggedIn ? 'Sync now' : 'Sign in to sync')}
+      aria-live="polite"
+    >
       <Cloud size={16} />
-      {currentUser?.isLoggedIn ? syncState?.status ?? 'Synced' : 'Sign in'}
-    </span>
+      {label}
+    </button>
   )
 }
 
@@ -1172,19 +1238,19 @@ function ManagementPanel({
         <BucketManager settings={settings} buckets={buckets} ledger={ledger} />
       </section>
       <section className="panel">
-        <SourceManager sources={sources} />
+        <SourceManager settings={settings} sources={sources} />
       </section>
       <section className="panel">
-        <CategoryManager categories={categories} />
+        <CategoryManager settings={settings} categories={categories} />
       </section>
       <section className="panel">
-        <BackupPanel />
+        <BackupPanel settings={settings} />
       </section>
     </div>
   )
 }
 
-function BackupPanel() {
+function BackupPanel({ settings }: { settings: AppSettings }) {
   const [message, setMessage] = useState('')
 
   return (
@@ -1195,7 +1261,7 @@ function BackupPanel() {
           type="button"
           onClick={async () => {
             setMessage('')
-            const backup = await exportBackup()
+            const backup = await exportBackup(settings.realmId)
             const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
             const url = URL.createObjectURL(blob)
             const link = document.createElement('a')
@@ -1209,7 +1275,7 @@ function BackupPanel() {
           Download backup
         </button>
         <label className="file-button">
-          Restore from file
+          Merge backup
           <input
             type="file"
             accept="application/json,.json"
@@ -1221,9 +1287,12 @@ function BackupPanel() {
               try {
                 const backup = parseBackup(await file.text())
                 const summary = `${backup.transactions.length} transactions, ${backup.buckets.length} buckets (saved ${formatShortDate(backup.exportedAt.slice(0, 10))})`
-                if (!window.confirm(`Replace everything in the app with this backup?\n${summary}`)) return
-                await restoreBackup(backup)
-                setMessage(`Restored ${summary}.`)
+                if (!window.confirm(`Add records missing from the current family space?\n${summary}\nExisting records will not be changed or deleted.`)) return
+                const result = await mergeBackup(backup, settings.realmId)
+                const totalAdded = Object.values(result.added).reduce((sum, count) => sum + count, 0)
+                setMessage(
+                  `Merged ${totalAdded} missing records (${result.added.transactions} transactions); kept ${result.skippedExisting} existing records unchanged.`,
+                )
               } catch (error) {
                 setMessage(error instanceof Error ? error.message : String(error))
               }
@@ -1233,8 +1302,7 @@ function BackupPanel() {
       </div>
       {message ? <p className="small-label">{message}</p> : null}
       <p className="small-label">
-        The backup is a single file with all buckets, sources, categories and transactions. Keep one somewhere safe — browser
-        storage can be wiped by clearing site data.
+        The backup contains this family space. Merging is additive: it never clears the app and never overwrites an existing ID.
       </p>
     </div>
   )
@@ -1374,25 +1442,25 @@ function FixBalanceForm({ settings, buckets, ledger }: { settings: AppSettings; 
   )
 }
 
-function SourceManager({ sources }: { sources: IncomeSource[] }) {
+function SourceManager({ settings, sources }: { settings: AppSettings; sources: IncomeSource[] }) {
   return (
     <ManagedNameList
       title="Income sources"
       hint="New sources are also created automatically when you type them on the income form."
       items={sources}
-      onAdd={(name) => addSource(name)}
+      onAdd={(name) => addSource(name, settings.realmId)}
       onToggle={(id, archived) => setSourceArchived(id, archived)}
     />
   )
 }
 
-function CategoryManager({ categories }: { categories: Category[] }) {
+function CategoryManager({ settings, categories }: { settings: AppSettings; categories: Category[] }) {
   return (
     <ManagedNameList
       title="Expense categories"
       hint="New categories are also created automatically when you type them on the expense form."
       items={categories}
-      onAdd={(name) => addCategory(name)}
+      onAdd={(name) => addCategory(name, settings.realmId)}
       onToggle={(id, archived) => setCategoryArchived(id, archived)}
     />
   )
