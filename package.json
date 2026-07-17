@@ -16,7 +16,6 @@
     "dexie": "latest",
     "dexie-cloud-addon": "latest",
     "dexie-react-hooks": "latest",
-    "fake-indexeddb": "^6.2.5",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",

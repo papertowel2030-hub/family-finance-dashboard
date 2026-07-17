@@ -136,7 +136,9 @@ export async function setCategoryArchived(categoryId: string, archived: boolean)
 async function findOrCreateSource(name: string, realmId?: string) {
   const trimmed = name.trim()
   if (!trimmed) return undefined
-  const existing = (await db.incomeSources.toArray()).find((source) => source.name.toLowerCase() === trimmed.toLowerCase())
+  const existing = (await db.incomeSources.toArray()).find(
+    (source) => source.realmId === realmId && source.name.toLowerCase() === trimmed.toLowerCase(),
+  )
   if (existing) return existing.id
   return addSource(trimmed, realmId)
 }
@@ -144,7 +146,9 @@ async function findOrCreateSource(name: string, realmId?: string) {
 async function findOrCreateCategory(name: string, realmId?: string) {
   const trimmed = name.trim()
   if (!trimmed) return undefined
-  const existing = (await db.categories.toArray()).find((category) => category.name.toLowerCase() === trimmed.toLowerCase())
+  const existing = (await db.categories.toArray()).find(
+    (category) => category.realmId === realmId && category.name.toLowerCase() === trimmed.toLowerCase(),
+  )
   if (existing) return existing.id
   return addCategory(trimmed, realmId)
 }
