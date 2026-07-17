@@ -1,26 +1,22 @@
 import { describe, expect, it, vi } from 'vitest'
-import { reconcileCloud } from './sync'
+import { requestCloudSync } from './sync'
 
-describe('reconcileCloud', () => {
-  it('waits for a pull before pushing local-only records', async () => {
-    const calls: string[] = []
-    const sync = vi.fn(async ({ purpose }: { purpose: 'pull' | 'push' }) => {
-      calls.push(purpose)
-    })
+describe('requestCloudSync', () => {
+  it('requests one non-blocking two-way reconciliation', async () => {
+    const sync = vi.fn(async () => undefined)
 
-    await reconcileCloud({ sync } as never)
+    await requestCloudSync({ sync } as never)
 
-    expect(calls).toEqual(['pull', 'push'])
-    expect(sync).toHaveBeenNthCalledWith(1, { wait: true, purpose: 'pull' })
-    expect(sync).toHaveBeenNthCalledWith(2, { wait: true, purpose: 'push' })
+    expect(sync).toHaveBeenCalledOnce()
+    expect(sync).toHaveBeenCalledWith({ wait: false, purpose: 'pull' })
   })
 
-  it('does not push when the pull fails', async () => {
-    const sync = vi.fn(async ({ purpose }: { purpose: 'pull' | 'push' }) => {
-      if (purpose === 'pull') throw new Error('offline')
+  it('surfaces a failure to request the retry', async () => {
+    const sync = vi.fn(async () => {
+      throw new Error('offline')
     })
 
-    await expect(reconcileCloud({ sync } as never)).rejects.toThrow('offline')
+    await expect(requestCloudSync({ sync } as never)).rejects.toThrow('offline')
     expect(sync).toHaveBeenCalledTimes(1)
   })
 })

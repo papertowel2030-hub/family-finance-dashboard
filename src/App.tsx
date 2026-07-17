@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery, useObservable } from 'dexie-react-hooks'
 import type { Table } from 'dexie'
 import { BehaviorSubject } from 'rxjs'
@@ -50,7 +50,7 @@ import {
   updateTransaction,
 } from './db/actions'
 import { backupFileName, exportBackup, mergeBackup, parseBackup } from './db/backup'
-import { reconcileCloud } from './db/sync'
+import { requestCloudSync } from './db/sync'
 import { computeLedger, monthFlowTotals } from './lib/ledger'
 import type {
   AppSettings,
@@ -500,7 +500,7 @@ function StorageUnavailablePanel() {
   )
 }
 
-function SyncBadge({
+export function SyncBadge({
   currentUser,
   syncState,
 }: {
@@ -508,39 +508,32 @@ function SyncBadge({
   syncState?: CloudSyncState
 }) {
   const loggedIn = Boolean(currentUser?.isLoggedIn)
-  const [runState, setRunState] = useState<{ status: 'idle' | 'running' | 'error'; error?: string }>({ status: 'idle' })
-  const running = useRef<Promise<void> | null>(null)
+  const [requestError, setRequestError] = useState<string>()
+  const [isDelayed, setIsDelayed] = useState(false)
+  const activePhase = syncState?.phase === 'pulling' || syncState?.phase === 'pushing'
 
-  const syncNow = useCallback(() => {
-    if (!isCloudConfigured || !loggedIn) return Promise.resolve()
-    if (running.current) return running.current
-
-    setRunState({ status: 'running' })
-    const task = reconcileCloud(db.cloud)
-      .then(({ completedAt }) => {
-        localStorage.setItem('familyFinanceLastSync', completedAt)
-        setRunState({ status: 'idle' })
-      })
-      .catch((error) => {
-        setRunState({ status: 'error', error: error instanceof Error ? error.message : String(error) })
-      })
-      .finally(() => {
-        running.current = null
-      })
-    running.current = task
-    return task
+  useEffect(() => {
+    setRequestError(undefined)
   }, [loggedIn])
 
   useEffect(() => {
-    if (!loggedIn) {
-      setRunState({ status: 'idle' })
-      return
+    setIsDelayed(false)
+    if (!activePhase) return
+
+    const timer = window.setTimeout(() => setIsDelayed(true), 20_000)
+    return () => window.clearTimeout(timer)
+  }, [activePhase, syncState?.phase])
+
+  const syncNow = async () => {
+    if (!isCloudConfigured || !loggedIn) return
+    setRequestError(undefined)
+    try {
+      const { requestedAt } = await requestCloudSync(db.cloud)
+      localStorage.setItem('familyFinanceLastSyncRequest', requestedAt)
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : String(error))
     }
-    void syncNow()
-    const onOnline = () => void syncNow()
-    window.addEventListener('online', onOnline)
-    return () => window.removeEventListener('online', onOnline)
-  }, [loggedIn, syncNow])
+  }
 
   if (!isCloudConfigured) {
     return (
@@ -551,29 +544,38 @@ function SyncBadge({
     )
   }
 
-  const cloudError = runState.error || syncState?.error?.message
-  const isRunning = runState.status === 'running' || syncState?.phase === 'pulling' || syncState?.phase === 'pushing'
-  const isError = runState.status === 'error' || syncState?.status === 'error' || syncState?.phase === 'error'
+  const cloudError = requestError || syncState?.error?.message
+  const isRunning = activePhase && !isDelayed
+  const isError = Boolean(requestError) || syncState?.status === 'error' || syncState?.phase === 'error'
   const isOffline = syncState?.status === 'offline' || syncState?.status === 'disconnected' || syncState?.phase === 'offline'
   const label = !loggedIn
     ? 'Sign in'
     : isError
       ? 'Sync failed'
-      : isRunning
-        ? 'Syncing…'
-        : isOffline
-          ? 'Offline'
-          : syncState?.phase === 'in-sync'
-            ? 'Synced'
-            : 'Not synced'
+      : isDelayed
+        ? 'Sync delayed'
+        : isRunning
+          ? 'Syncing…'
+          : isOffline
+            ? 'Offline'
+            : syncState?.phase === 'in-sync'
+              ? 'Synced'
+              : 'Not synced'
 
   return (
     <button
       type="button"
-      className={`sync-badge ${isError ? 'error' : isOffline ? 'muted' : ''}`}
-      disabled={!loggedIn || isRunning}
+      className={`sync-badge ${isError || isDelayed ? 'error' : isOffline ? 'muted' : ''}`}
+      disabled={!loggedIn}
       onClick={() => void syncNow()}
-      title={cloudError || (loggedIn ? 'Sync now' : 'Sign in to sync')}
+      title={
+        cloudError ||
+        (isDelayed
+          ? 'Sync is taking longer than expected. Your changes are saved locally; click to retry.'
+          : loggedIn
+            ? 'Sync now'
+            : 'Sign in to sync')
+      }
       aria-live="polite"
     >
       <Cloud size={16} />
