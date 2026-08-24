@@ -23,6 +23,7 @@ import {
   Receipt,
   RefreshCcw,
   Repeat,
+  Search,
   Settings,
   ShieldCheck,
   Trash2,
@@ -37,6 +38,8 @@ import {
   createCloudFamilySpace,
   createLocalFamilySpace,
   deleteBucket,
+  deleteCategory,
+  deleteSource,
   deleteTransaction,
   restoreTransaction,
   saveAdjustment,
@@ -1453,6 +1456,7 @@ function SourceManager({ settings, sources }: { settings: AppSettings; sources: 
       items={sources}
       onAdd={(name) => addSource(name, settings.realmId)}
       onToggle={(id, archived) => setSourceArchived(id, archived)}
+      onDelete={(id) => deleteSource(id)}
     />
   )
 }
@@ -1465,6 +1469,7 @@ function CategoryManager({ settings, categories }: { settings: AppSettings; cate
       items={categories}
       onAdd={(name) => addCategory(name, settings.realmId)}
       onToggle={(id, archived) => setCategoryArchived(id, archived)}
+      onDelete={(id) => deleteCategory(id)}
     />
   )
 }
@@ -1475,18 +1480,40 @@ function ManagedNameList({
   items,
   onAdd,
   onToggle,
+  onDelete,
 }: {
   title: string
   hint: string
   items: Array<{ id: string; name: string; archived?: boolean }>
   onAdd: (name: string) => Promise<unknown>
   onToggle: (id: string, archived: boolean) => Promise<unknown>
+  onDelete: (id: string) => Promise<unknown>
 }) {
   const [name, setName] = useState('')
+  const [query, setQuery] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
+
+  const matches = (item: { name: string }) => item.name.toLowerCase().includes(query.trim().toLowerCase())
+  const active = items.filter((item) => !item.archived && matches(item))
+  const archived = items.filter((item) => item.archived && matches(item))
+  const archivedTotal = items.filter((item) => item.archived).length
+
+  const remove = async (item: { id: string; name: string }) => {
+    if (!window.confirm(`Delete "${item.name}" permanently?`)) return
+    try {
+      await onDelete(item.id)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : String(error))
+    }
+  }
 
   return (
     <div className="manager-block">
-      <h3>{title}</h3>
+      <div className="inline-header">
+        <h3>
+          {title} <span className="small-label">({items.length - archivedTotal} active{archivedTotal ? `, ${archivedTotal} archived` : ''})</span>
+        </h3>
+      </div>
       <form
         className="mini-form"
         onSubmit={async (event) => {
@@ -1499,24 +1526,53 @@ function ManagedNameList({
         <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Name" />
         <button type="submit">Add</button>
       </form>
-      {items.length ? (
+      {items.length > 6 ? (
+        <div className="search-field">
+          <Search size={15} />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search ${title.toLowerCase()}…`} />
+        </div>
+      ) : null}
+      {active.length ? (
         <div className="pill-list">
-          {items.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={item.archived ? 'archived' : ''}
-              title={item.archived ? 'Tap to restore' : 'Tap to archive'}
-              onClick={() => onToggle(item.id, !item.archived)}
-            >
-              {item.name}
-              {item.archived ? ' ·restore' : ''}
-            </button>
+          {active.map((item) => (
+            <span key={item.id} className="pill-item">
+              <button type="button" className="pill-name" title="Tap to archive" onClick={() => onToggle(item.id, true)}>
+                {item.name}
+              </button>
+              <button type="button" className="pill-delete" aria-label={`Delete ${item.name}`} title="Delete" onClick={() => remove(item)}>
+                <Trash2 size={13} />
+              </button>
+            </span>
           ))}
         </div>
       ) : (
-        <p className="empty-state">Empty</p>
+        <p className="empty-state">{query ? 'No matches.' : 'Empty'}</p>
       )}
+      {archivedTotal ? (
+        <>
+          <button type="button" className="ghost-button show-more-button" onClick={() => setShowArchived((value) => !value)}>
+            {showArchived ? 'Hide' : 'Show'} archived ({archivedTotal})
+          </button>
+          {showArchived ? (
+            archived.length ? (
+              <div className="pill-list">
+                {archived.map((item) => (
+                  <span key={item.id} className="pill-item is-archived">
+                    <button type="button" className="pill-name" title="Tap to restore" onClick={() => onToggle(item.id, false)}>
+                      {item.name}
+                    </button>
+                    <button type="button" className="pill-delete" aria-label={`Delete ${item.name}`} title="Delete" onClick={() => remove(item)}>
+                      <Trash2 size={13} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="empty-state">No matches.</p>
+            )
+          ) : null}
+        </>
+      ) : null}
       <p className="small-label">{hint}</p>
     </div>
   )

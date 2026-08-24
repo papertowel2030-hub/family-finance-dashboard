@@ -94,17 +94,33 @@ export async function setBucketArchived(bucketId: string, archived: boolean) {
   await db.buckets.update(bucketId, { archived, updatedAt: nowIso() })
 }
 
+/**
+ * Runs a usage check and a delete atomically in one Dexie transaction, so a sync write
+ * landing between the two can't leave a dangling reference to the deleted row.
+ */
+async function deleteIfUnused(noun: string, usage: () => Promise<number>, remove: () => Promise<unknown>) {
+  await db.transaction('rw', db.transactions, db.buckets, db.incomeSources, db.categories, async () => {
+    const used = await usage()
+    if (used > 0) {
+      throw new Error(`This ${noun} is used by ${used} transaction${used === 1 ? '' : 's'}. Archive it instead, or delete its transactions first.`)
+    }
+    await remove()
+  })
+}
+
 /** Deletes a bucket only while no transaction references it — otherwise history and balances would silently break. */
 export async function deleteBucket(bucketId: string) {
-  const [asSource, asTarget] = await Promise.all([
-    db.transactions.where('bucketId').equals(bucketId).count(),
-    db.transactions.where('toBucketId').equals(bucketId).count(),
-  ])
-  const used = asSource + asTarget
-  if (used > 0) {
-    throw new Error(`This bucket is used by ${used} transaction${used === 1 ? '' : 's'}. Archive it instead, or delete its transactions first.`)
-  }
-  await db.buckets.delete(bucketId)
+  await deleteIfUnused(
+    'bucket',
+    async () => {
+      const [asSource, asTarget] = await Promise.all([
+        db.transactions.where('bucketId').equals(bucketId).count(),
+        db.transactions.where('toBucketId').equals(bucketId).count(),
+      ])
+      return asSource + asTarget
+    },
+    () => db.buckets.delete(bucketId),
+  )
 }
 
 export async function renameBucket(bucketId: string, name: string) {
@@ -122,6 +138,15 @@ export async function setSourceArchived(sourceId: string, archived: boolean) {
   await db.incomeSources.update(sourceId, { archived, updatedAt: nowIso() })
 }
 
+/** Deletes an income source only while no transaction references it — otherwise history would silently lose its tag. */
+export async function deleteSource(sourceId: string) {
+  await deleteIfUnused(
+    'source',
+    () => db.transactions.where('sourceId').equals(sourceId).count(),
+    () => db.incomeSources.delete(sourceId),
+  )
+}
+
 export async function addCategory(name: string, realmId?: string) {
   const now = nowIso()
   const id = makeId('category')
@@ -131,6 +156,15 @@ export async function addCategory(name: string, realmId?: string) {
 
 export async function setCategoryArchived(categoryId: string, archived: boolean) {
   await db.categories.update(categoryId, { archived, updatedAt: nowIso() })
+}
+
+/** Deletes an expense category only while no transaction references it — otherwise history would silently lose its tag. */
+export async function deleteCategory(categoryId: string) {
+  await deleteIfUnused(
+    'category',
+    () => db.transactions.where('categoryId').equals(categoryId).count(),
+    () => db.categories.delete(categoryId),
+  )
 }
 
 async function findOrCreateSource(name: string, realmId?: string) {
