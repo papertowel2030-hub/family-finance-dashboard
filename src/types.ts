@@ -93,10 +93,14 @@ export interface LedgerSnapshot {
 }
 
 export interface Filters {
-  bucketId: 'all' | string
-  type: 'all' | TransactionType
-  sourceId: 'all' | string
-  categoryId: 'all' | string
+  /** Empty array means no filter (all buckets). */
+  bucketIds: string[]
+  /** Empty array means no filter (all types). */
+  types: TransactionType[]
+  /** Empty array means no filter (all sources). */
+  sourceIds: string[]
+  /** Empty array means no filter (all categories). */
+  categoryIds: string[]
   from: string
   to: string
 }
