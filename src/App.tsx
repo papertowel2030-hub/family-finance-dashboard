@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery, useObservable } from 'dexie-react-hooks'
 import type { Table } from 'dexie'
 import { BehaviorSubject } from 'rxjs'
@@ -6,6 +6,7 @@ import {
   ArrowDownToLine,
   ArrowLeftRight,
   ArrowUpFromLine,
+  Check,
   ChevronDown,
   ChevronUp,
   CircleAlert,
@@ -74,10 +75,10 @@ const ownerNames: Record<BucketOwner, string> = {
 }
 
 const emptyFilters: Filters = {
-  bucketId: 'all',
-  type: 'all',
-  sourceId: 'all',
-  categoryId: 'all',
+  bucketIds: [],
+  types: [],
+  sourceIds: [],
+  categoryIds: [],
   from: '',
   to: '',
 }
@@ -1552,50 +1553,30 @@ function FiltersPanel({
       </button>
       {open ? (
       <div className="filter-grid">
-        <label>
-          Bucket
-          <select value={filters.bucketId} onChange={(event) => setFilters({ ...filters, bucketId: event.target.value })}>
-            <option value="all">All</option>
-            {buckets.map((bucket) => (
-              <option key={bucket.id} value={bucket.id}>
-                {bucket.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Type
-          <select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value as Filters['type'] })}>
-            <option value="all">All</option>
-            {Object.entries(transactionLabels).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Source
-          <select value={filters.sourceId} onChange={(event) => setFilters({ ...filters, sourceId: event.target.value })}>
-            <option value="all">All</option>
-            {sources.map((source) => (
-              <option key={source.id} value={source.id}>
-                {source.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Category
-          <select value={filters.categoryId} onChange={(event) => setFilters({ ...filters, categoryId: event.target.value })}>
-            <option value="all">All</option>
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <MultiSelectFilter
+          label="Bucket"
+          options={buckets.map((bucket) => ({ value: bucket.id, label: bucket.name }))}
+          selected={filters.bucketIds}
+          onChange={(bucketIds) => setFilters({ ...filters, bucketIds })}
+        />
+        <MultiSelectFilter
+          label="Type"
+          options={Object.entries(transactionLabels).map(([value, label]) => ({ value, label }))}
+          selected={filters.types}
+          onChange={(types) => setFilters({ ...filters, types: types as TransactionType[] })}
+        />
+        <MultiSelectFilter
+          label="Source"
+          options={sources.map((source) => ({ value: source.id, label: source.name }))}
+          selected={filters.sourceIds}
+          onChange={(sourceIds) => setFilters({ ...filters, sourceIds })}
+        />
+        <MultiSelectFilter
+          label="Category"
+          options={categories.map((category) => ({ value: category.id, label: category.name }))}
+          selected={filters.categoryIds}
+          onChange={(categoryIds) => setFilters({ ...filters, categoryIds })}
+        />
         <label>
           From
           <input type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} />
@@ -1613,12 +1594,82 @@ function FiltersPanel({
   )
 }
 
+function MultiSelectFilter({
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string
+  options: Array<{ value: string; label: string }>
+  selected: string[]
+  onChange: (values: string[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [open])
+
+  const summary =
+    selected.length === 0
+      ? 'All'
+      : selected.length === 1
+        ? (options.find((option) => option.value === selected[0])?.label ?? 'All')
+        : `${selected.length} selected`
+
+  const toggleValue = (value: string) => {
+    onChange(selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value])
+  }
+
+  return (
+    <div className="multi-select" ref={containerRef}>
+      <span className="multi-select-label">{label}</span>
+      <button type="button" className="multi-select-trigger" onClick={() => setOpen(!open)}>
+        <span>{summary}</span>
+        {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+      </button>
+      {open ? (
+        <div className="multi-select-menu">
+          <label className="multi-select-option">
+            <span className="multi-select-checkbox" data-checked={selected.length === 0}>
+              {selected.length === 0 ? <Check size={14} /> : null}
+            </span>
+            <input type="checkbox" checked={selected.length === 0} onChange={() => onChange([])} />
+            All
+          </label>
+          {options.map((option) => {
+            const checked = selected.includes(option.value)
+            return (
+              <label className="multi-select-option" key={option.value}>
+                <span className="multi-select-checkbox" data-checked={checked}>
+                  {checked ? <Check size={14} /> : null}
+                </span>
+                <input type="checkbox" checked={checked} onChange={() => toggleValue(option.value)} />
+                {option.label}
+              </label>
+            )
+          })}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function countActiveFilters(filters: Filters) {
   let count = 0
-  if (filters.bucketId !== 'all') count += 1
-  if (filters.type !== 'all') count += 1
-  if (filters.sourceId !== 'all') count += 1
-  if (filters.categoryId !== 'all') count += 1
+  if (filters.bucketIds.length) count += 1
+  if (filters.types.length) count += 1
+  if (filters.sourceIds.length) count += 1
+  if (filters.categoryIds.length) count += 1
   if (filters.from) count += 1
   if (filters.to) count += 1
   return count
@@ -1952,12 +2003,16 @@ function filterTransactions(transactions: Transaction[], filters: Filters) {
   return transactions.filter((transaction) => {
     if (filters.from && transaction.date < filters.from) return false
     if (filters.to && transaction.date > filters.to) return false
-    if (filters.type !== 'all' && transaction.type !== filters.type) return false
-    if (filters.bucketId !== 'all' && transaction.bucketId !== filters.bucketId && transaction.toBucketId !== filters.bucketId) {
+    if (filters.types.length && !filters.types.includes(transaction.type)) return false
+    if (
+      filters.bucketIds.length &&
+      !filters.bucketIds.includes(transaction.bucketId) &&
+      !(transaction.toBucketId && filters.bucketIds.includes(transaction.toBucketId))
+    ) {
       return false
     }
-    if (filters.sourceId !== 'all' && transaction.sourceId !== filters.sourceId) return false
-    if (filters.categoryId !== 'all' && transaction.categoryId !== filters.categoryId) return false
+    if (filters.sourceIds.length && (!transaction.sourceId || !filters.sourceIds.includes(transaction.sourceId))) return false
+    if (filters.categoryIds.length && (!transaction.categoryId || !filters.categoryIds.includes(transaction.categoryId))) return false
     return true
   })
 }
