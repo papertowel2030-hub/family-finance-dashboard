@@ -648,6 +648,71 @@ h3 {
   text-decoration: line-through;
 }
 
+.pill-list .pill-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px 0 12px;
+}
+
+.pill-list .pill-item.is-archived {
+  opacity: 0.55;
+}
+
+.pill-list .pill-item button {
+  min-height: 22px;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 0;
+}
+
+.pill-list .pill-item .pill-name {
+  padding: 4px 2px;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.pill-list .pill-item.is-archived .pill-name {
+  text-decoration: line-through;
+}
+
+.pill-list .pill-item .pill-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--muted);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.pill-list .pill-item .pill-delete:hover {
+  background: rgba(138, 47, 32, 0.14);
+  color: #8a2f20;
+}
+
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdf9;
+  color: var(--muted);
+}
+
+.search-field input {
+  border: none;
+  background: none;
+  padding: 0;
+  min-height: 36px;
+}
+
 .month-close-main {
   display: flex;
   align-items: center;
