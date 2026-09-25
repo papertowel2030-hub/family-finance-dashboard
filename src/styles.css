@@ -1423,8 +1423,23 @@ h3 {
   text-align: left;
 }
 
+/* Plain rows next to tappable ones: same box so bars line up. */
+.bar-row-static {
+  width: 100%;
+  padding: 4px 6px;
+  margin: 0 -6px;
+  border: 1px solid transparent;
+}
+
 .bar-row-button:hover {
   background: rgba(255, 255, 255, 0.6);
+}
+
+.show-less {
+  justify-self: start;
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 0.85rem;
 }
 
 .bar-row-button.selected {

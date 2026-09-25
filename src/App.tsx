@@ -963,6 +963,7 @@ function MonthInsights({
     () => monthTrend(buckets, transactions, monthKey, TREND_MONTHS, owners, currency),
     [buckets, transactions, monthKey, owners, currency],
   )
+  const [showAllCategories, setShowAllCategories] = useState(false)
   const categoryRows = useMemo(() => {
     const current = spendingByCategory(buckets, transactions, monthKey, owners, currency)
     const previous = spendingByCategory(buckets, transactions, previousMonthKey(monthKey), owners, currency)
@@ -980,13 +981,13 @@ function MonthInsights({
     if (rest.length) {
       top.push({
         key: 'other',
-        label: `Other (${rest.length})`,
+        label: `Other (${rest.length}) ▸`,
         amount: roundMoney(rest.reduce((sum, row) => sum + row.amount, 0)),
         previous: roundMoney(rest.reduce((sum, row) => sum + row.previous, 0)),
       })
     }
-    return { rows: top, total: roundMoney(total) }
-  }, [buckets, transactions, categories, monthKey, owners, currency])
+    return { rows: showAllCategories ? rows : top, canCollapse: rest.length > 0, total: roundMoney(total) }
+  }, [buckets, transactions, categories, monthKey, owners, currency, showAllCategories])
 
   const trendMax = Math.max(...trend.map((row) => Math.max(row.income, row.spending)), 0)
   const categoryMax = Math.max(...categoryRows.rows.map((row) => row.amount), 0)
@@ -1055,15 +1056,15 @@ function MonthInsights({
           categoryRows.rows.map((row, index) => {
             const share = categoryRows.total ? Math.round((row.amount / categoryRows.total) * 100) : 0
             const change = row.previous ? Math.round(((row.amount - row.previous) / row.previous) * 100) : null
-            return (
-              <div className="bar-row insight-row" key={row.key}>
+            const content = (
+              <>
                 <span>{row.label}</span>
-                <div className="bar-track">
-                  <div
+                <span className="bar-track">
+                  <span
                     className={`bar-fill ${row.key === 'other' ? 'tone-other' : `tone-${index % 4}`}`}
                     style={{ width: `${categoryMax ? Math.max(4, (row.amount / categoryMax) * 100) : 0}%` }}
                   />
-                </div>
+                </span>
                 <span className="insight-values">
                   <strong>{formatMoney(row.amount, currency)}</strong>
                   <span className="small-label">{share}%</span>
@@ -1071,12 +1072,32 @@ function MonthInsights({
                     {change === null ? 'new' : change > 0 ? `↑${change}%` : change < 0 ? `↓${Math.abs(change)}%` : '='}
                   </span>
                 </span>
+              </>
+            )
+            return row.key === 'other' ? (
+              <button
+                type="button"
+                className="bar-row insight-row bar-row-button"
+                key={row.key}
+                title="Show the rest"
+                onClick={() => setShowAllCategories(true)}
+              >
+                {content}
+              </button>
+            ) : (
+              <div className="bar-row insight-row bar-row-static" key={row.key}>
+                {content}
               </div>
             )
           })
         ) : (
           <p className="empty-state">No spending in {currency} this month.</p>
         )}
+        {showAllCategories && categoryRows.canCollapse ? (
+          <button type="button" className="ghost-button show-less" onClick={() => setShowAllCategories(false)}>
+            Show less
+          </button>
+        ) : null}
       </div>
     </section>
   )
@@ -2188,6 +2209,7 @@ function ChartBlock({
   onPick: (id: string) => void
 }) {
   const currencies = [...new Set(rows.map((row) => row.currency))]
+  const [showAll, setShowAll] = useState(false)
   return (
     <div className="chart-block">
       <h3>{title}</h3>
@@ -2195,9 +2217,10 @@ function ChartBlock({
         currencies.map((currency) => {
           const inCurrency = rows.filter((row) => row.currency === currency)
           const total = roundMoney(inCurrency.reduce((sum, row) => sum + row.amount, 0))
-          const top = inCurrency.slice(0, CHART_TOP_ROWS)
           const rest = inCurrency.slice(CHART_TOP_ROWS)
-          const max = Math.max(...top.map((row) => row.amount), rest.reduce((sum, row) => sum + row.amount, 0), 0)
+          const restTotal = roundMoney(rest.reduce((sum, row) => sum + row.amount, 0))
+          const visible = showAll ? inCurrency : inCurrency.slice(0, CHART_TOP_ROWS)
+          const max = Math.max(...visible.map((row) => row.amount), showAll ? 0 : restTotal, 0)
           const share = (amount: number) => (total ? `${Math.round((amount / total) * 100)}%` : '')
           return (
             <div className="chart-currency" key={currency}>
@@ -2206,7 +2229,7 @@ function ChartBlock({
                   {currency} · total {formatMoney(total, currency)}
                 </p>
               ) : null}
-              {top.map((row, index) => {
+              {visible.map((row, index) => {
                 const content = (
                   <>
                     <span>{row.label}</span>
@@ -2230,25 +2253,27 @@ function ChartBlock({
                     {content}
                   </button>
                 ) : (
-                  <div className="bar-row" key={`none-${row.currency}`}>
+                  <div className="bar-row bar-row-static" key={`none-${row.currency}`}>
                     {content}
                   </div>
                 )
               })}
-              {rest.length ? (
-                <div className="bar-row">
-                  <span>Other ({rest.length})</span>
+              {rest.length && !showAll ? (
+                <button type="button" className="bar-row bar-row-button" title="Show the rest" onClick={() => setShowAll(true)}>
+                  <span>Other ({rest.length}) ▸</span>
                   <span className="bar-track">
-                    <span
-                      className="bar-fill tone-other"
-                      style={{ width: `${max ? Math.max(6, (rest.reduce((sum, row) => sum + row.amount, 0) / max) * 100) : 0}%` }}
-                    />
+                    <span className="bar-fill tone-other" style={{ width: `${max ? Math.max(6, (restTotal / max) * 100) : 0}%` }} />
                   </span>
                   <span className="insight-values">
-                    <strong>{formatMoney(roundMoney(rest.reduce((sum, row) => sum + row.amount, 0)), currency)}</strong>
-                    <span className="small-label">{share(rest.reduce((sum, row) => sum + row.amount, 0))}</span>
+                    <strong>{formatMoney(restTotal, currency)}</strong>
+                    <span className="small-label">{share(restTotal)}</span>
                   </span>
-                </div>
+                </button>
+              ) : null}
+              {rest.length && showAll ? (
+                <button type="button" className="ghost-button show-less" onClick={() => setShowAll(false)}>
+                  Show less
+                </button>
               ) : null}
               {currencies.length === 1 ? <p className="small-label">Total {formatMoney(total, currency)}</p> : null}
             </div>
