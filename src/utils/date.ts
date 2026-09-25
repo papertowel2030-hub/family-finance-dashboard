@@ -50,3 +50,20 @@ export function formatShortDate(date: string) {
     year: 'numeric',
   }).format(new Date(`${date}T12:00:00+03:00`))
 }
+
+export function previousMonthKey(monthKey: string) {
+  const [year, month] = monthKey.split('-').map(Number)
+  const previous = new Date(Date.UTC(year, month - 2, 1))
+  return `${previous.getUTCFullYear()}-${String(previous.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
+/** `count` month keys ending with `monthKey`, oldest first. */
+export function monthKeysEndingAt(monthKey: string, count: number) {
+  const keys = [monthKey]
+  while (keys.length < count) keys.unshift(previousMonthKey(keys[0]))
+  return keys
+}
+
+export function formatMonthShort(monthKey: string) {
+  return new Intl.DateTimeFormat('en', { timeZone: MSK_TIME_ZONE, month: 'short' }).format(new Date(`${monthKey}-01T12:00:00+03:00`))
+}

@@ -285,12 +285,29 @@ h3 {
   margin-left: auto;
 }
 
-.undo-toast {
+.undo-stack {
   position: fixed;
   left: 50%;
   bottom: 22px;
   transform: translateX(-50%);
   z-index: 60;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: min(92vw, 480px);
+}
+
+.undo-more {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #fffaf2;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.undo-toast {
   display: flex;
   align-items: center;
   gap: 14px;
@@ -1133,6 +1150,10 @@ h3 {
 }
 
 @media (max-width: 620px) {
+  .undo-stack {
+    bottom: calc(80px + env(safe-area-inset-bottom));
+  }
+
   .app-shell {
     width: min(100% - 20px, 1180px);
     padding-top: 18px;
@@ -1213,5 +1234,290 @@ h3 {
     grid-column: 1;
     grid-row: auto;
     justify-content: flex-start;
+  }
+}
+
+/* --- Month summary: left over / overspent --- */
+.summary-item.saved {
+  color: var(--teal);
+}
+
+.summary-item.over {
+  color: var(--warning);
+}
+
+/* --- Backup reminder --- */
+.reminder-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid rgba(47, 111, 159, 0.28);
+  border-radius: 8px;
+  background: var(--blue-soft);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.reminder-strip span {
+  flex: 1 1 200px;
+}
+
+.backup-due {
+  color: var(--warning);
+}
+
+/* --- Clickable bucket cards --- */
+.money-card.clickable {
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.money-card.clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 54px rgba(42, 35, 28, 0.12);
+}
+
+.money-card.clickable:focus-visible {
+  outline: 3px solid rgba(47, 111, 159, 0.34);
+  outline-offset: 2px;
+}
+
+/* --- Month insights --- */
+.insights-panel {
+  display: grid;
+  gap: 20px;
+}
+
+.insight-block {
+  display: grid;
+  gap: 10px;
+}
+
+.trend-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.legend-dot.in,
+.trend-bar.in {
+  background: var(--blue);
+}
+
+.legend-dot.out,
+.trend-bar.out {
+  background: var(--plum);
+}
+
+.trend-chart {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.trend-month {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 8px 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  min-width: 0;
+}
+
+.trend-month.active {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--ink);
+}
+
+.trend-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 110px;
+  width: 100%;
+  justify-content: center;
+}
+
+.trend-bar {
+  width: min(16px, 34%);
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+}
+
+.trend-net {
+  color: var(--teal);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.trend-net.negative {
+  color: var(--warning);
+}
+
+.insight-values {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.change-chip {
+  min-width: 42px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(31, 42, 46, 0.06);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.change-chip.up {
+  background: var(--plum-soft);
+  color: var(--plum);
+}
+
+.change-chip.down {
+  background: var(--teal-soft);
+  color: var(--teal);
+}
+
+.change-chip.new {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+/* --- Breakdowns --- */
+.chart-currency {
+  display: grid;
+  gap: 8px;
+}
+
+.bar-row-button {
+  width: 100%;
+  padding: 4px 6px;
+  margin: 0 -6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.bar-row-button:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.bar-row-button.selected {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.bar-track .bar-fill {
+  display: block;
+}
+
+.tone-other {
+  background: var(--muted);
+  opacity: 0.5;
+}
+
+/* --- History --- */
+.day-header {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.day-header:first-child {
+  margin-top: 0;
+}
+
+.amount-in {
+  color: var(--blue);
+}
+
+.amount-out {
+  color: var(--plum);
+}
+
+/* --- Delete confirmation --- */
+.delete-link {
+  margin-right: auto;
+  color: var(--warning);
+}
+
+.delete-confirm {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(143, 90, 34, 0.4);
+  border-radius: 8px;
+  background: #f8ead5;
+}
+
+.delete-confirm p {
+  display: grid;
+  gap: 4px;
+  color: #5b3512;
+  font-weight: 700;
+}
+
+.danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid #8f2f22;
+  border-radius: 8px;
+  background: #a33a2b;
+  color: #fffaf2;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.danger-button:disabled,
+.ghost-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+@media (max-width: 620px) {
+  /* Name and amount on one line, bar underneath — keeps breakdowns short on a phone. */
+  .bar-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 6px;
+  }
+
+  .bar-row .bar-track {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .trend-bars {
+    height: 90px;
   }
 }

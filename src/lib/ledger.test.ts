@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { computeLedger, monthFlowTotals } from './ledger'
+import { activeCurrencies, computeLedger, monthFlowTotals, monthTrend, spendingByCategory } from './ledger'
+import { monthKeysEndingAt } from '../utils/date'
 import type { Bucket, Transaction, TransactionType } from '../types'
 
 const now = '2026-07-01T00:00:00.000Z'
@@ -182,5 +183,55 @@ describe('monthFlowTotals', () => {
     expect(totals.income).toEqual([{ currency: 'RUB', amount: 105000 }])
     // Moon (8000) + Family (3000).
     expect(totals.spending).toEqual([{ currency: 'RUB', amount: 11000 }])
+  })
+})
+
+describe('month insights', () => {
+  const moon = bucket('b_moon', 'Moon', 'spending', 'moon')
+  const buckets = [alena, family, business, savings, moon]
+  const transactions = [
+    txn('income', 'b_alena', 12000, '2026-07-02'),
+    txn('income', 'b_moon', 5000, '2026-08-13'),
+    txn('expense', 'b_family', 4800, '2026-07-04', { categoryId: 'c_util' }),
+    txn('expense', 'b_family', 1200, '2026-08-04', { categoryId: 'c_util' }),
+    txn('expense', 'b_alena', 700, '2026-08-05', { categoryId: 'c_food' }),
+    txn('expense', 'b_moon', 300, '2026-08-06'),
+    txn('expense', 'b_biz', 9000, '2026-08-06', { categoryId: 'c_util' }),
+    txn('funding', 'b_biz', 16000, '2026-08-01'),
+    txn('transfer', 'b_alena', 2000, '2026-08-07', { toBucketId: 'b_save' }),
+    txn('expense', 'b_family', 50, '2026-08-08', { currency: 'USD', categoryId: 'c_food' }),
+  ]
+
+  it('builds a trend that matches the month totals for every month', () => {
+    const trend = monthTrend(buckets, transactions, '2026-08', 3, null, 'RUB')
+
+    expect(trend.map((row) => row.monthKey)).toEqual(['2026-06', '2026-07', '2026-08'])
+    for (const row of trend) {
+      const totals = monthFlowTotals(buckets, transactions, row.monthKey, null)
+      expect(row.income).toBe(totals.income.find((item) => item.currency === 'RUB')?.amount ?? 0)
+      expect(row.spending).toBe(totals.spending.find((item) => item.currency === 'RUB')?.amount ?? 0)
+    }
+    expect(trend[2]).toEqual({ monthKey: '2026-08', income: 5000, spending: 2200 })
+  })
+
+  it('narrows the trend to an owner plus shared buckets', () => {
+    const trend = monthTrend(buckets, transactions, '2026-08', 1, ['alena', 'shared'], 'RUB')
+
+    expect(trend).toEqual([{ monthKey: '2026-08', income: 0, spending: 1900 }])
+  })
+
+  it('splits spending by category without business money or other currencies', () => {
+    const byCategory = spendingByCategory(buckets, transactions, '2026-08', null, 'RUB')
+
+    expect(Object.fromEntries(byCategory)).toEqual({ c_util: 1200, c_food: 700, '': 300 })
+  })
+
+  it('lists currencies with activity, most used first', () => {
+    expect(activeCurrencies(transactions, ['2026-08'])).toEqual(['RUB', 'USD'])
+    expect(activeCurrencies(transactions, ['2026-06'])).toEqual([])
+  })
+
+  it('walks month keys across a year boundary', () => {
+    expect(monthKeysEndingAt('2026-02', 4)).toEqual(['2025-11', '2025-12', '2026-01', '2026-02'])
   })
 })
