@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery, useObservable } from 'dexie-react-hooks'
 import type { Table } from 'dexie'
 import { BehaviorSubject } from 'rxjs'
@@ -13,16 +13,19 @@ import {
   Cloud,
   CloudOff,
   Coins,
+  Download,
   Edit3,
   HandCoins,
   LineChart,
   LogIn,
   LogOut,
   Plus,
+  PiggyBank,
   PlusCircle,
   Receipt,
   RefreshCcw,
   Repeat,
+  RotateCcw,
   Search,
   Settings,
   ShieldCheck,
@@ -54,8 +57,9 @@ import {
   updateTransaction,
 } from './db/actions'
 import { backupFileName, exportBackup, mergeBackup, parseBackup } from './db/backup'
+import { listDeletedTransactions, RECOVERY_KEEP_DAYS, restoreDeleted, type RecoveryEntry, updateRecoveryLog } from './db/recovery'
 import { requestCloudSync } from './db/sync'
-import { computeLedger, monthFlowTotals } from './lib/ledger'
+import { activeCurrencies, computeLedger, monthFlowTotals, monthTrend, spendingByCategory } from './lib/ledger'
 import type {
   AppSettings,
   Bucket,
@@ -65,10 +69,19 @@ import type {
   Filters,
   IncomeSource,
   LedgerSnapshot,
+  MoneyBucket,
   Transaction,
   TransactionType,
 } from './types'
-import { currentMonthKey, formatMonth, formatShortDate, todayInputDate } from './utils/date'
+import {
+  currentMonthKey,
+  formatMonth,
+  formatMonthShort,
+  formatShortDate,
+  monthKeysEndingAt,
+  previousMonthKey,
+  todayInputDate,
+} from './utils/date'
 import { formatBuckets, formatMoney, parseAmount, roundMoney } from './utils/money'
 
 const ownerNames: Record<BucketOwner, string> = {
@@ -148,6 +161,8 @@ const offlineInteraction$ = new BehaviorSubject<DXCUserInteraction | undefined>(
 
 type StorageState = 'checking' | 'ready' | 'unavailable'
 
+const UNDO_WINDOW_MS = 12_000
+
 function App() {
   const [storageState, setStorageState] = useState<StorageState>(() => (canSeeIndexedDb() ? 'checking' : 'unavailable'))
 
@@ -217,14 +232,44 @@ function FinanceApp() {
   const [filters, setFilters] = useState<Filters>(emptyFilters)
   const [editing, setEditing] = useState<Transaction | null>(null)
   const [monthKey, setMonthKey] = useState(currentMonthKey())
-  const [justDeleted, setJustDeleted] = useState<Transaction | null>(null)
+  // Every delete keeps its own Undo, so deleting several in a row never loses the earlier ones.
+  const [recentDeletes, setRecentDeletes] = useState<Array<{ transaction: Transaction; deletedAt: number }>>([])
   const [prefill, setPrefill] = useState<{ transaction: Transaction; key: number } | null>(null)
+  const recoveryQueue = useRef<Promise<void>>(Promise.resolve())
 
   useEffect(() => {
-    if (!justDeleted) return
-    const timer = window.setTimeout(() => setJustDeleted(null), 8000)
+    if (!recentDeletes.length) return
+    const oldest = Math.min(...recentDeletes.map((item) => item.deletedAt))
+    const timer = window.setTimeout(
+      () => setRecentDeletes((items) => items.filter((item) => Date.now() - item.deletedAt < UNDO_WINDOW_MS)),
+      Math.max(0, oldest + UNDO_WINDOW_MS - Date.now()),
+    )
     return () => window.clearTimeout(timer)
-  }, [justDeleted])
+  }, [recentDeletes])
+
+  // Keep this device's recovery log in step with the data. Reads all tables in one
+  // transaction so a half-loaded state never makes records look deleted.
+  useEffect(() => {
+    if (!settings) return
+    const timer = window.setTimeout(() => {
+      // Queued so an older update can never land after a newer one.
+      recoveryQueue.current = recoveryQueue.current
+        .then(() =>
+          db.transaction('r', db.buckets, db.incomeSources, db.categories, db.transactions, async () => {
+            const [liveBuckets, liveSources, liveCategories, liveTransactions] = await Promise.all([
+              rowsInRealm(db.buckets, activeRealmId),
+              rowsInRealm(db.incomeSources, activeRealmId),
+              rowsInRealm(db.categories, activeRealmId),
+              rowsInRealm(db.transactions, activeRealmId),
+            ])
+            return { buckets: liveBuckets, incomeSources: liveSources, categories: liveCategories, transactions: liveTransactions }
+          }),
+        )
+        .then((live) => updateRecoveryLog(live, activeRealmId))
+        .catch((error) => console.warn('Recovery log update failed', error))
+    }, 1500)
+    return () => window.clearTimeout(timer)
+  }, [settings, activeRealmId, buckets, sources, categories, transactions])
 
   const ledger = useMemo(() => computeLedger(buckets ?? [], transactions ?? [], monthKey), [buckets, transactions, monthKey])
 
@@ -261,6 +306,13 @@ function FinanceApp() {
               onMonthChange={setMonthKey}
               transactions={transactions ?? []}
               buckets={buckets ?? []}
+              categories={categories ?? []}
+              defaultCurrency={settings.defaultCurrency}
+              onOpenBucket={(bucketId) => {
+                setFilters({ ...emptyFilters, bucketIds: [bucketId] })
+                setTab('activity')
+              }}
+              onOpenBackup={() => setTab('setup')}
             />
           ) : null}
 
@@ -283,16 +335,19 @@ function FinanceApp() {
                 sources={sources ?? []}
                 categories={categories ?? []}
                 onEdit={setEditing}
-                onDelete={async (transaction) => {
-                  await deleteTransaction(transaction.id)
-                  setJustDeleted(transaction)
-                }}
                 onRepeat={(transaction) => {
                   setPrefill({ transaction, key: Date.now() })
                   setTab('add')
                 }}
               />
-              <Charts transactions={filteredTransactions} buckets={buckets ?? []} sources={sources ?? []} categories={categories ?? []} />
+              <Charts
+                transactions={filteredTransactions}
+                buckets={buckets ?? []}
+                sources={sources ?? []}
+                categories={categories ?? []}
+                filters={filters}
+                setFilters={setFilters}
+              />
             </div>
           ) : null}
 
@@ -313,22 +368,34 @@ function FinanceApp() {
               sources={sources ?? []}
               categories={categories ?? []}
               onClose={() => setEditing(null)}
+              onDelete={async (transaction) => {
+                await deleteTransaction(transaction.id)
+                setEditing(null)
+                setRecentDeletes((items) => [...items, { transaction, deletedAt: Date.now() }])
+              }}
             />
           ) : null}
-          {justDeleted ? (
-            <div className="undo-toast" role="status">
-              <span>
-                Deleted: {transactionLabels[justDeleted.type].toLowerCase()} {signedAmount(justDeleted)}
-              </span>
-              <button
-                type="button"
-                onClick={async () => {
-                  await restoreTransaction(justDeleted)
-                  setJustDeleted(null)
-                }}
-              >
-                Undo
-              </button>
+          {recentDeletes.length ? (
+            <div className="undo-stack" role="status">
+              {recentDeletes.slice(-3).map(({ transaction }) => (
+                <div className="undo-toast" key={transaction.id}>
+                  <span>
+                    Deleted: {transactionLabels[transaction.type].toLowerCase()} {signedAmount(transaction)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await restoreTransaction(transaction)
+                      setRecentDeletes((items) => items.filter((item) => item.transaction.id !== transaction.id))
+                    }}
+                  >
+                    Undo
+                  </button>
+                </div>
+              ))}
+              {recentDeletes.length > 3 ? (
+                <span className="undo-more">+{recentDeletes.length - 3} more in Setup → Recently deleted</span>
+              ) : null}
             </div>
           ) : null}
         </>
@@ -719,24 +786,37 @@ function Dashboard({
   onMonthChange,
   transactions,
   buckets,
+  categories,
+  defaultCurrency,
+  onOpenBucket,
+  onOpenBackup,
 }: {
   ledger: LedgerSnapshot
   monthKey: string
   onMonthChange: (monthKey: string) => void
   transactions: Transaction[]
   buckets: Bucket[]
+  categories: Category[]
+  defaultCurrency: string
+  onOpenBucket: (bucketId: string) => void
+  onOpenBackup: () => void
 }) {
   const [viewer, setViewer] = useState<ViewerId>(sessionViewer)
   const changeViewer = (next: ViewerId) => {
     sessionViewer = next
     setViewer(next)
   }
+  const [backupDue, setBackupDue] = useState(() => {
+    const age = daysSince(readLastBackupAt())
+    return (age === null || age >= BACKUP_REMIND_DAYS) && !isBackupReminderSnoozed()
+  })
 
-  const monthTotals = useMemo(() => {
-    const owners: BucketOwner[] | null =
-      viewer === 'moon' ? ['moon', 'shared'] : viewer === 'alena' ? ['alena', 'shared'] : null
-    return monthFlowTotals(buckets, transactions, monthKey, owners)
-  }, [buckets, transactions, monthKey, viewer])
+  const owners = useMemo<BucketOwner[] | null>(
+    () => (viewer === 'moon' ? ['moon', 'shared'] : viewer === 'alena' ? ['alena', 'shared'] : null),
+    [viewer],
+  )
+  const monthTotals = useMemo(() => monthFlowTotals(buckets, transactions, monthKey, owners), [buckets, transactions, monthKey, owners])
+  const saved = savedPerCurrency(monthTotals.income, monthTotals.spending)
 
   const scopeNote =
     viewer === 'all' ? 'business money not counted' : `${ownerNames[viewer]} + shared · business not counted`
@@ -774,15 +854,50 @@ function Dashboard({
           <ArrowUpFromLine size={16} />
           Spent: −{formatBuckets(monthTotals.spending, '0')}
         </span>
+        {saved.length ? (
+          <span className={`summary-item ${saved.some((item) => item.amount < 0) ? 'over' : 'saved'}`}>
+            <PiggyBank size={16} />
+            {saved.map((item) => `${item.amount < 0 ? 'Overspent' : 'Left over'}: ${formatMoney(Math.abs(item.amount), item.currency)}`).join(' · ')}
+          </span>
+        ) : null}
         <span className="small-label">
           {formatMonth(monthKey)} · {scopeNote}
         </span>
       </div>
 
+      {backupDue && transactions.length ? (
+        <div className="reminder-strip">
+          <Download size={18} />
+          <span>No backup file downloaded on this device for {BACKUP_REMIND_DAYS}+ days.</span>
+          <button type="button" className="primary-button" onClick={onOpenBackup}>
+            Back up now
+          </button>
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => {
+              snoozeBackupReminder(7)
+              setBackupDue(false)
+            }}
+          >
+            Later
+          </button>
+        </div>
+      ) : null}
+
       {bucketGroups.map((group) => {
         const balances = ledger.balances.filter((balance) => balance.bucket.kind === group.kind)
         if (!balances.length && group.kind !== 'spending') return null
-        return <BucketGroupView key={group.kind} group={group} balances={balances} viewer={viewer} monthKey={monthKey} />
+        return (
+          <BucketGroupView
+            key={group.kind}
+            group={group}
+            balances={balances}
+            viewer={viewer}
+            monthKey={monthKey}
+            onOpenBucket={onOpenBucket}
+          />
+        )
       })}
 
       {ledger.negativeWarnings.length ? (
@@ -791,8 +906,188 @@ function Dashboard({
           {ledger.negativeWarnings.join(' · ')}
         </div>
       ) : null}
+
+      <MonthInsights
+        buckets={buckets}
+        transactions={transactions}
+        categories={categories}
+        monthKey={monthKey}
+        owners={owners}
+        defaultCurrency={defaultCurrency}
+        onMonthChange={onMonthChange}
+      />
     </section>
   )
+}
+
+/** Money in minus spent, per currency, for currencies that had any flow. */
+function savedPerCurrency(income: MoneyBucket[], spending: MoneyBucket[]) {
+  const currencies = [...new Set([...income, ...spending].map((item) => item.currency))].sort()
+  return currencies.map((currency) => ({
+    currency,
+    amount: roundMoney(
+      (income.find((item) => item.currency === currency)?.amount ?? 0) - (spending.find((item) => item.currency === currency)?.amount ?? 0),
+    ),
+  }))
+}
+
+const TREND_MONTHS = 6
+const TOP_CATEGORIES = 5
+
+function MonthInsights({
+  buckets,
+  transactions,
+  categories,
+  monthKey,
+  owners,
+  defaultCurrency,
+  onMonthChange,
+}: {
+  buckets: Bucket[]
+  transactions: Transaction[]
+  categories: Category[]
+  monthKey: string
+  owners: BucketOwner[] | null
+  defaultCurrency: string
+  onMonthChange: (monthKey: string) => void
+}) {
+  const monthKeys = useMemo(() => monthKeysEndingAt(monthKey, TREND_MONTHS), [monthKey])
+  const currencies = useMemo(() => {
+    const used = activeCurrencies(transactions, monthKeys)
+    return used.includes(defaultCurrency) || !used.length ? [defaultCurrency, ...used.filter((item) => item !== defaultCurrency)] : used
+  }, [transactions, monthKeys, defaultCurrency])
+  const [pickedCurrency, setPickedCurrency] = useState('')
+  const currency = currencies.includes(pickedCurrency) ? pickedCurrency : currencies[0]
+
+  const trend = useMemo(
+    () => monthTrend(buckets, transactions, monthKey, TREND_MONTHS, owners, currency),
+    [buckets, transactions, monthKey, owners, currency],
+  )
+  const categoryRows = useMemo(() => {
+    const current = spendingByCategory(buckets, transactions, monthKey, owners, currency)
+    const previous = spendingByCategory(buckets, transactions, previousMonthKey(monthKey), owners, currency)
+    const total = [...current.values()].reduce((sum, amount) => sum + amount, 0)
+    const rows = [...current.entries()]
+      .map(([categoryId, amount]) => ({
+        key: categoryId,
+        label: nameForCategory(categoryId || undefined, categories),
+        amount,
+        previous: previous.get(categoryId) ?? 0,
+      }))
+      .sort((a, b) => b.amount - a.amount)
+    const top = rows.slice(0, TOP_CATEGORIES)
+    const rest = rows.slice(TOP_CATEGORIES)
+    if (rest.length) {
+      top.push({
+        key: 'other',
+        label: `Other (${rest.length})`,
+        amount: roundMoney(rest.reduce((sum, row) => sum + row.amount, 0)),
+        previous: roundMoney(rest.reduce((sum, row) => sum + row.previous, 0)),
+      })
+    }
+    return { rows: top, total: roundMoney(total) }
+  }, [buckets, transactions, categories, monthKey, owners, currency])
+
+  const trendMax = Math.max(...trend.map((row) => Math.max(row.income, row.spending)), 0)
+  const categoryMax = Math.max(...categoryRows.rows.map((row) => row.amount), 0)
+  const hasTrend = trend.some((row) => row.income || row.spending)
+
+  return (
+    <section className="panel insights-panel">
+      <div className="section-header compact">
+        <div>
+          <p className="eyebrow">Business money not counted</p>
+          <h2>Month insights</h2>
+        </div>
+        {currencies.length > 1 ? (
+          <div className="segmented-control" aria-label="Currency">
+            {currencies.map((item) => (
+              <button key={item} type="button" className={item === currency ? 'active' : ''} onClick={() => setPickedCurrency(item)}>
+                {item}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="insight-block">
+        <div className="inline-header">
+          <h3>Last {TREND_MONTHS} months</h3>
+          <span className="trend-legend">
+            <span className="legend-dot in" /> In <span className="legend-dot out" /> Spent
+          </span>
+        </div>
+        {hasTrend ? (
+          <div className="trend-chart" role="list">
+            {trend.map((row) => {
+              const net = roundMoney(row.income - row.spending)
+              return (
+                <button
+                  key={row.monthKey}
+                  type="button"
+                  role="listitem"
+                  className={`trend-month ${row.monthKey === monthKey ? 'active' : ''}`}
+                  onClick={() => onMonthChange(row.monthKey)}
+                  title={`${formatMonth(row.monthKey)}: in ${formatMoney(row.income, currency)}, spent ${formatMoney(row.spending, currency)}`}
+                  aria-label={`${formatMonth(row.monthKey)}: in ${formatMoney(row.income, currency)}, spent ${formatMoney(row.spending, currency)}`}
+                >
+                  <span className="trend-bars">
+                    <span className="trend-bar in" style={{ height: `${trendMax ? (row.income / trendMax) * 100 : 0}%` }} />
+                    <span className="trend-bar out" style={{ height: `${trendMax ? (row.spending / trendMax) * 100 : 0}%` }} />
+                  </span>
+                  <span className="trend-label">{formatMonthShort(row.monthKey)}</span>
+                  <span className={`trend-net ${net < 0 ? 'negative' : ''}`}>{formatCompact(net)}</span>
+                </button>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="empty-state">No income or spending in {currency} yet.</p>
+        )}
+      </div>
+
+      <div className="insight-block">
+        <div className="inline-header">
+          <h3>Where it went · {formatMonth(monthKey)}</h3>
+          <span className="small-label">vs {formatMonth(previousMonthKey(monthKey))}</span>
+        </div>
+        {categoryRows.rows.length ? (
+          categoryRows.rows.map((row, index) => {
+            const share = categoryRows.total ? Math.round((row.amount / categoryRows.total) * 100) : 0
+            const change = row.previous ? Math.round(((row.amount - row.previous) / row.previous) * 100) : null
+            return (
+              <div className="bar-row insight-row" key={row.key}>
+                <span>{row.label}</span>
+                <div className="bar-track">
+                  <div
+                    className={`bar-fill ${row.key === 'other' ? 'tone-other' : `tone-${index % 4}`}`}
+                    style={{ width: `${categoryMax ? Math.max(4, (row.amount / categoryMax) * 100) : 0}%` }}
+                  />
+                </div>
+                <span className="insight-values">
+                  <strong>{formatMoney(row.amount, currency)}</strong>
+                  <span className="small-label">{share}%</span>
+                  <span className={`change-chip ${change === null ? 'new' : change > 0 ? 'up' : change < 0 ? 'down' : ''}`}>
+                    {change === null ? 'new' : change > 0 ? `↑${change}%` : change < 0 ? `↓${Math.abs(change)}%` : '='}
+                  </span>
+                </span>
+              </div>
+            )
+          })
+        ) : (
+          <p className="empty-state">No spending in {currency} this month.</p>
+        )}
+      </div>
+    </section>
+  )
+}
+
+/** Short signed number for tight spots: 12 400 → +12.4k. */
+function formatCompact(amount: number) {
+  const sign = amount > 0 ? '+' : amount < 0 ? '−' : ''
+  const abs = Math.abs(amount)
+  const text = abs >= 1_000_000 ? `${roundMoney(abs / 1_000_000)}M` : abs >= 1000 ? `${Math.round(abs / 100) / 10}k` : `${Math.round(abs)}`
+  return `${sign}${text}`
 }
 
 function BucketGroupView({
@@ -800,11 +1095,13 @@ function BucketGroupView({
   balances,
   viewer,
   monthKey,
+  onOpenBucket,
 }: {
   group: { kind: BucketKind; title: string; hint?: string }
   balances: LedgerSnapshot['balances']
   viewer: ViewerId
   monthKey: string
+  onOpenBucket: (bucketId: string) => void
 }) {
   const [showPartner, setShowPartner] = useState(false)
   const partner: BucketOwner | null = viewer === 'moon' ? 'alena' : viewer === 'alena' ? 'moon' : null
@@ -820,8 +1117,18 @@ function BucketGroupView({
     const isMine = viewer !== 'all' && balance.bucket.ownerId === viewer
     return (
       <article
-        className={`money-card ${groupTones[group.kind]} ${isMine ? 'mine' : ''} ${balance.totals.some((total) => total.amount < 0) ? 'warning' : ''}`}
+        className={`money-card clickable ${groupTones[group.kind]} ${isMine ? 'mine' : ''} ${balance.totals.some((total) => total.amount < 0) ? 'warning' : ''}`}
         key={balance.bucket.id}
+        role="button"
+        tabIndex={0}
+        title={`Show ${balance.bucket.name} history`}
+        onClick={() => onOpenBucket(balance.bucket.id)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            onOpenBucket(balance.bucket.id)
+          }
+        }}
       >
         <div className="card-label">
           {balance.bucket.name}
@@ -1250,18 +1557,110 @@ function ManagementPanel({
         <CategoryManager settings={settings} categories={categories} />
       </section>
       <section className="panel">
+        <RecoveryPanel settings={settings} buckets={buckets} sources={sources} categories={categories} />
+      </section>
+      <section className="panel">
         <BackupPanel settings={settings} />
       </section>
     </div>
   )
 }
 
+const RECOVERY_PAGE_SIZE = 10
+
+function RecoveryPanel({
+  settings,
+  buckets,
+  sources,
+  categories,
+}: {
+  settings: AppSettings
+  buckets: Bucket[]
+  sources: IncomeSource[]
+  categories: Category[]
+}) {
+  const deleted = useLiveQuery(() => listDeletedTransactions(settings.realmId), [settings.realmId], [] as RecoveryEntry[])
+  const [visibleCount, setVisibleCount] = useState(RECOVERY_PAGE_SIZE)
+  const [busyKey, setBusyKey] = useState('')
+  const [message, setMessage] = useState('')
+
+  const restore = async (entry: RecoveryEntry) => {
+    setBusyKey(entry.key)
+    setMessage('')
+    try {
+      await restoreDeleted(entry)
+      setMessage(`Restored ${signedAmount(entry.data as Transaction)}.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusyKey('')
+    }
+  }
+
+  return (
+    <div className="manager-block">
+      <h3>
+        Recently deleted <span className="small-label">({deleted?.length ?? 0})</span>
+      </h3>
+      <p className="small-label">
+        This device keeps a copy of every entry it has seen. Deleted entries, whether deleted here or on the other device, stay here for{' '}
+        {RECOVERY_KEEP_DAYS} days.
+      </p>
+      {deleted?.length ? (
+        <div className="transaction-list">
+          {deleted.slice(0, visibleCount).map((entry) => {
+            const transaction = entry.data as Transaction
+            return (
+              <article className="transaction-row" key={entry.key}>
+                <div className="transaction-main">
+                  <span className={`type-chip ${transaction.type}`}>{transactionLabels[transaction.type]}</span>
+                  <strong>{signedAmount(transaction)}</strong>
+                  <span>{formatShortDate(transaction.date)}</span>
+                </div>
+                <div className="transaction-meta">
+                  <span>{bucketLine(transaction, buckets)}</span>
+                  {transaction.type === 'income' ? <span>{nameForSource(transaction.sourceId, sources)}</span> : null}
+                  {transaction.type === 'expense' ? <span>{nameForCategory(transaction.categoryId, categories)}</span> : null}
+                  {transaction.note ? <span>{transaction.note}</span> : null}
+                  <span>· deleted ~{formatShortDate(isoToMoscowDate(entry.missingSince ?? ''))}</span>
+                </div>
+                <div className="row-actions">
+                  <button type="button" className="ghost-button" onClick={() => restore(entry)} disabled={busyKey === entry.key}>
+                    <RotateCcw size={16} />
+                    Restore
+                  </button>
+                </div>
+              </article>
+            )
+          })}
+          {visibleCount < deleted.length ? (
+            <button type="button" className="ghost-button show-more-button" onClick={() => setVisibleCount((count) => count + RECOVERY_PAGE_SIZE)}>
+              Show {Math.min(RECOVERY_PAGE_SIZE, deleted.length - visibleCount)} more
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <p className="empty-state">Nothing deleted recently.</p>
+      )}
+      {message ? <p className="small-label">{message}</p> : null}
+    </div>
+  )
+}
+
 function BackupPanel({ settings }: { settings: AppSettings }) {
   const [message, setMessage] = useState('')
+  const [lastBackupAt, setLastBackupAt] = useState(readLastBackupAt)
+  const age = daysSince(lastBackupAt)
 
   return (
     <div className="manager-block">
       <h3>Backup</h3>
+      <p className={`small-label ${age === null || age >= BACKUP_REMIND_DAYS ? 'backup-due' : ''}`}>
+        {lastBackupAt
+          ? `Last downloaded on this device: ${formatShortDate(isoToMoscowDate(lastBackupAt))} (${age === 0 ? 'today' : `${age} day${age === 1 ? '' : 's'} ago`}).`
+          : 'No backup downloaded on this device yet.'}{' '}
+        Keep a file somewhere outside the app (e.g. email it to yourself) about once a month.
+      </p>
       <div className="row-actions backup-actions">
         <button
           type="button"
@@ -1275,6 +1674,7 @@ function BackupPanel({ settings }: { settings: AppSettings }) {
             link.download = backupFileName()
             link.click()
             URL.revokeObjectURL(url)
+            setLastBackupAt(markBackupDownloaded())
             setMessage(`Saved ${backup.transactions.length} transactions to ${link.download}.`)
           }}
         >
@@ -1736,53 +2136,124 @@ function Charts({
   buckets,
   sources,
   categories,
+  filters,
+  setFilters,
 }: {
   transactions: Transaction[]
   buckets: Bucket[]
   sources: IncomeSource[]
   categories: Category[]
+  filters: Filters
+  setFilters: (filters: Filters) => void
 }) {
-  const incomeRows = sumRows(
-    transactions.filter((transaction) => transaction.type === 'income'),
-    (transaction) => nameForSource(transaction.sourceId, sources),
-  )
-  const categoryRows = sumRows(
-    transactions.filter((transaction) => transaction.type === 'expense'),
-    (transaction) => nameForCategory(transaction.categoryId, categories),
-  )
-  const bucketRows = sumRows(
-    transactions.filter((transaction) => transaction.type === 'expense'),
-    (transaction) => nameForBucket(transaction.bucketId, buckets),
-  )
+  const incomes = transactions.filter((transaction) => transaction.type === 'income')
+  const expenses = transactions.filter((transaction) => transaction.type === 'expense')
+  const incomeRows = sumRows(incomes, (transaction) => transaction.sourceId ?? '', (id) => nameForSource(id || undefined, sources))
+  const categoryRows = sumRows(expenses, (transaction) => transaction.categoryId ?? '', (id) => nameForCategory(id || undefined, categories))
+  const bucketRows = sumRows(expenses, (transaction) => transaction.bucketId, (id) => nameForBucket(id, buckets))
+
+  // Tapping a row narrows History to it; tapping the only selected row again clears it.
+  const toggle = (field: 'sourceIds' | 'categoryIds' | 'bucketIds') => (id: string) =>
+    setFilters({ ...filters, [field]: filters[field].length === 1 && filters[field][0] === id ? [] : [id] })
 
   return (
     <section className="panel charts-panel">
       <div className="section-header compact">
-        <h2>Breakdowns</h2>
+        <div>
+          <h2>Breakdowns</h2>
+          <p className="small-label">Of the entries shown above · tap a row to filter</p>
+        </div>
         <LineChart size={20} />
       </div>
-      <ChartBlock title="Income by source" rows={incomeRows} />
-      <ChartBlock title="Spending by category" rows={categoryRows} />
-      <ChartBlock title="Spending by bucket" rows={bucketRows} />
+      <ChartBlock title="Income by source" rows={incomeRows} selected={filters.sourceIds} onPick={toggle('sourceIds')} />
+      <ChartBlock title="Spending by category" rows={categoryRows} selected={filters.categoryIds} onPick={toggle('categoryIds')} />
+      <ChartBlock title="Spending by bucket" rows={bucketRows} selected={filters.bucketIds} onPick={toggle('bucketIds')} />
     </section>
   )
 }
 
-function ChartBlock({ title, rows }: { title: string; rows: Array<{ label: string; amount: number; currency: string }> }) {
-  const max = Math.max(...rows.map((row) => row.amount), 0)
+const CHART_TOP_ROWS = 6
+
+type ChartRow = { id: string; label: string; amount: number; currency: string }
+
+function ChartBlock({
+  title,
+  rows,
+  selected,
+  onPick,
+}: {
+  title: string
+  rows: ChartRow[]
+  selected: string[]
+  onPick: (id: string) => void
+}) {
+  const currencies = [...new Set(rows.map((row) => row.currency))]
   return (
     <div className="chart-block">
       <h3>{title}</h3>
       {rows.length ? (
-        rows.slice(0, 6).map((row, index) => (
-          <div className="bar-row" key={`${row.label}-${row.currency}`}>
-            <span>{row.label}</span>
-            <div className="bar-track">
-              <div className={`bar-fill tone-${index % 4}`} style={{ width: `${max ? Math.max(6, (row.amount / max) * 100) : 0}%` }} />
+        currencies.map((currency) => {
+          const inCurrency = rows.filter((row) => row.currency === currency)
+          const total = roundMoney(inCurrency.reduce((sum, row) => sum + row.amount, 0))
+          const top = inCurrency.slice(0, CHART_TOP_ROWS)
+          const rest = inCurrency.slice(CHART_TOP_ROWS)
+          const max = Math.max(...top.map((row) => row.amount), rest.reduce((sum, row) => sum + row.amount, 0), 0)
+          const share = (amount: number) => (total ? `${Math.round((amount / total) * 100)}%` : '')
+          return (
+            <div className="chart-currency" key={currency}>
+              {currencies.length > 1 ? (
+                <p className="small-label">
+                  {currency} · total {formatMoney(total, currency)}
+                </p>
+              ) : null}
+              {top.map((row, index) => {
+                const content = (
+                  <>
+                    <span>{row.label}</span>
+                    <span className="bar-track">
+                      <span className={`bar-fill tone-${index % 4}`} style={{ width: `${max ? Math.max(6, (row.amount / max) * 100) : 0}%` }} />
+                    </span>
+                    <span className="insight-values">
+                      <strong>{formatMoney(row.amount, row.currency)}</strong>
+                      <span className="small-label">{share(row.amount)}</span>
+                    </span>
+                  </>
+                )
+                // "No source" / "Uncategorized" have no id to filter by.
+                return row.id ? (
+                  <button
+                    type="button"
+                    className={`bar-row bar-row-button ${selected.includes(row.id) ? 'selected' : ''}`}
+                    key={`${row.id}-${row.currency}`}
+                    onClick={() => onPick(row.id)}
+                  >
+                    {content}
+                  </button>
+                ) : (
+                  <div className="bar-row" key={`none-${row.currency}`}>
+                    {content}
+                  </div>
+                )
+              })}
+              {rest.length ? (
+                <div className="bar-row">
+                  <span>Other ({rest.length})</span>
+                  <span className="bar-track">
+                    <span
+                      className="bar-fill tone-other"
+                      style={{ width: `${max ? Math.max(6, (rest.reduce((sum, row) => sum + row.amount, 0) / max) * 100) : 0}%` }}
+                    />
+                  </span>
+                  <span className="insight-values">
+                    <strong>{formatMoney(roundMoney(rest.reduce((sum, row) => sum + row.amount, 0)), currency)}</strong>
+                    <span className="small-label">{share(rest.reduce((sum, row) => sum + row.amount, 0))}</span>
+                  </span>
+                </div>
+              ) : null}
+              {currencies.length === 1 ? <p className="small-label">Total {formatMoney(total, currency)}</p> : null}
             </div>
-            <strong>{formatMoney(row.amount, row.currency)}</strong>
-          </div>
-        ))
+          )
+        })
       ) : (
         <p className="empty-state">No data.</p>
       )}
@@ -1798,7 +2269,6 @@ function History({
   sources,
   categories,
   onEdit,
-  onDelete,
   onRepeat,
 }: {
   transactions: Transaction[]
@@ -1806,7 +2276,6 @@ function History({
   sources: IncomeSource[]
   categories: Category[]
   onEdit: (transaction: Transaction) => void
-  onDelete: (transaction: Transaction) => void
   onRepeat: (transaction: Transaction) => void
 }) {
   const [open, setOpen] = useState(() => localStorage.getItem('financeHistoryOpen') !== '0')
@@ -1832,12 +2301,15 @@ function History({
       </button>
       {open && transactions.length ? (
         <div className="transaction-list">
-          {transactions.slice(0, visibleCount).map((transaction) => (
-            <article className="transaction-row" key={transaction.id}>
+          {transactions.slice(0, visibleCount).map((transaction, index, visible) => (
+            <Fragment key={transaction.id}>
+            {index === 0 || visible[index - 1].date !== transaction.date ? (
+              <h3 className="day-header">{formatDayHeader(transaction.date)}</h3>
+            ) : null}
+            <article className="transaction-row">
               <div className="transaction-main">
                 <span className={`type-chip ${transaction.type}`}>{transactionLabels[transaction.type]}</span>
-                <strong>{signedAmount(transaction)}</strong>
-                <span>{formatShortDate(transaction.date)}</span>
+                <strong className={`amount-${amountDirection(transaction)}`}>{signedAmount(transaction)}</strong>
               </div>
               <div className="transaction-meta">
                 <span>{bucketLine(transaction, buckets)}</span>
@@ -1857,19 +2329,18 @@ function History({
                     <Repeat size={16} />
                   </button>
                 ) : null}
-                <button type="button" className="icon-button subtle" aria-label="Edit transaction" onClick={() => onEdit(transaction)}>
-                  <Edit3 size={16} />
-                </button>
                 <button
                   type="button"
                   className="icon-button subtle"
-                  aria-label="Delete transaction"
-                  onClick={() => onDelete(transaction)}
+                  aria-label="Edit transaction"
+                  title="Edit or delete"
+                  onClick={() => onEdit(transaction)}
                 >
-                  <Trash2 size={16} />
+                  <Edit3 size={16} />
                 </button>
               </div>
             </article>
+            </Fragment>
           ))}
           {visibleCount < transactions.length ? (
             <button type="button" className="ghost-button show-more-button" onClick={() => setVisibleCount((count) => count + HISTORY_PAGE_SIZE)}>
@@ -1949,12 +2420,14 @@ function EditTransactionDialog({
   sources,
   categories,
   onClose,
+  onDelete,
 }: {
   transaction: Transaction
   buckets: Bucket[]
   sources: IncomeSource[]
   categories: Category[]
   onClose: () => void
+  onDelete: (transaction: Transaction) => Promise<void>
 }) {
   const [date, setDate] = useState(transaction.date)
   const [amount, setAmount] = useState(String(transaction.amount))
@@ -1965,6 +2438,8 @@ function EditTransactionDialog({
   const [categoryName, setCategoryName] = useState(nameForCategory(transaction.categoryId, categories, ''))
   const [note, setNote] = useState(transaction.note ?? '')
   const [error, setError] = useState('')
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const editableBuckets = buckets.filter((bucket) => !bucket.archived || bucket.id === transaction.bucketId)
 
@@ -2042,16 +2517,110 @@ function EditTransactionDialog({
           </label>
         </div>
         {error ? <p className="form-error">{error}</p> : null}
-        <div className="dialog-actions">
-          <button type="button" className="ghost-button" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" className="primary-button">
-            Save edits
-          </button>
-        </div>
+        {confirmingDelete ? (
+          <div className="delete-confirm" role="alertdialog" aria-label="Confirm delete">
+            <p>
+              Delete this {transactionLabels[transaction.type].toLowerCase()}?
+              <strong>
+                {signedAmount(transaction)} · {formatShortDate(transaction.date)} · {bucketLine(transaction, buckets)}
+              </strong>
+              {transaction.note ? <span>{transaction.note}</span> : null}
+            </p>
+            <div className="dialog-actions">
+              <button type="button" className="ghost-button" onClick={() => setConfirmingDelete(false)} disabled={deleting}>
+                Keep it
+              </button>
+              <button
+                type="button"
+                className="danger-button"
+                disabled={deleting}
+                onClick={async () => {
+                  setDeleting(true)
+                  try {
+                    await onDelete(transaction)
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : String(err))
+                    setDeleting(false)
+                  }
+                }}
+              >
+                <Trash2 size={16} />
+                Yes, delete
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="dialog-actions">
+            <button type="button" className="ghost-button delete-link" onClick={() => setConfirmingDelete(true)}>
+              <Trash2 size={16} />
+              Delete…
+            </button>
+            <button type="button" className="ghost-button" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" className="primary-button">
+              Save edits
+            </button>
+          </div>
+        )}
       </form>
     </div>
+  )
+}
+
+const LAST_BACKUP_KEY = 'familyFinanceLastBackupDownload'
+const BACKUP_SNOOZE_KEY = 'familyFinanceBackupReminderSnoozedUntil'
+const BACKUP_REMIND_DAYS = 30
+
+function readLastBackupAt(): string | null {
+  try {
+    return localStorage.getItem(LAST_BACKUP_KEY)
+  } catch {
+    return null
+  }
+}
+
+function markBackupDownloaded() {
+  const now = new Date().toISOString()
+  try {
+    localStorage.setItem(LAST_BACKUP_KEY, now)
+  } catch {
+    // Reminder only; the download itself already happened.
+  }
+  return now
+}
+
+function isBackupReminderSnoozed() {
+  try {
+    const until = localStorage.getItem(BACKUP_SNOOZE_KEY)
+    return Boolean(until && until > new Date().toISOString())
+  } catch {
+    return false
+  }
+}
+
+function snoozeBackupReminder(days: number) {
+  try {
+    localStorage.setItem(BACKUP_SNOOZE_KEY, new Date(Date.now() + days * 86_400_000).toISOString())
+  } catch {
+    // Without storage the reminder simply shows again next time.
+  }
+}
+
+/** Whole days since an ISO timestamp, or null when there is none. */
+function daysSince(iso: string | null) {
+  if (!iso) return null
+  const parsed = Date.parse(iso)
+  if (!Number.isFinite(parsed)) return null
+  return Math.max(0, Math.floor((Date.now() - parsed) / 86_400_000))
+}
+
+/** YYYY-MM-DD of an ISO timestamp in Moscow time, matching how entry dates are shown. */
+function isoToMoscowDate(iso: string) {
+  const parsed = Date.parse(iso)
+  if (!Number.isFinite(parsed)) return todayInputDate()
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit' }).format(
+    new Date(parsed),
   )
 }
 
@@ -2073,16 +2642,34 @@ function filterTransactions(transactions: Transaction[], filters: Filters) {
   })
 }
 
-function sumRows(transactions: Transaction[], labelFor: (transaction: Transaction) => string) {
-  const rows = new Map<string, { label: string; amount: number; currency: string }>()
+function sumRows(transactions: Transaction[], idFor: (transaction: Transaction) => string, labelFor: (id: string) => string): ChartRow[] {
+  const rows = new Map<string, ChartRow>()
   for (const transaction of transactions) {
-    const label = labelFor(transaction)
-    const key = `${label}-${transaction.currency}`
-    const existing = rows.get(key) ?? { label, currency: transaction.currency, amount: 0 }
+    const id = idFor(transaction)
+    const key = `${id}-${transaction.currency}`
+    const existing = rows.get(key) ?? { id, label: labelFor(id), currency: transaction.currency, amount: 0 }
     existing.amount = roundMoney(existing.amount + Math.abs(transaction.amount))
     rows.set(key, existing)
   }
   return Array.from(rows.values()).sort((a, b) => b.amount - a.amount)
+}
+
+function amountDirection(transaction: Transaction): 'in' | 'out' | 'move' {
+  if (transaction.type === 'expense') return 'out'
+  if (transaction.type === 'income' || transaction.type === 'funding') return 'in'
+  if (transaction.type === 'adjustment') return transaction.amount < 0 ? 'out' : 'in'
+  return 'move'
+}
+
+/** "Today", "Yesterday", or e.g. "Thu, Aug 28, 2026" (Moscow time, like every other date here). */
+function formatDayHeader(date: string) {
+  const today = todayInputDate()
+  if (date === today) return 'Today'
+  const yesterday = new Date(Date.parse(`${today}T12:00:00+03:00`) - 86_400_000)
+  if (date === isoToMoscowDate(yesterday.toISOString())) return 'Yesterday'
+  return new Intl.DateTimeFormat('en', { timeZone: 'Europe/Moscow', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).format(
+    new Date(`${date}T12:00:00+03:00`),
+  )
 }
 
 function signedAmount(transaction: Transaction) {

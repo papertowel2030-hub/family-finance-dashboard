@@ -1,5 +1,5 @@
 import type { Bucket, BucketBalance, BucketOwner, LedgerSnapshot, MoneyBucket, Transaction } from '../types'
-import { monthKeyFromDate } from '../utils/date'
+import { monthKeyFromDate, monthKeysEndingAt } from '../utils/date'
 import { formatMoney, roundMoney } from '../utils/money'
 
 function addMoney(map: Map<string, number>, currency: string, amount: number) {
@@ -130,4 +130,88 @@ export function monthFlowTotals(
 
 export function balanceForBucket(snapshot: LedgerSnapshot, bucketId: string): MoneyBucket[] {
   return snapshot.balances.find((balance) => balance.bucket.id === bucketId)?.totals ?? []
+}
+
+/**
+ * Money in vs spent per month for one currency, oldest month first. Same rules as
+ * `monthFlowTotals`: income-type counts as money in; expenses from non-business
+ * buckets count as spent; `owners = null` means every owner.
+ */
+export function monthTrend(
+  buckets: Bucket[],
+  transactions: Transaction[],
+  endMonthKey: string,
+  count: number,
+  owners: BucketOwner[] | null,
+  currency: string,
+): Array<{ monthKey: string; income: number; spending: number }> {
+  const rows = monthKeysEndingAt(endMonthKey, count).map((monthKey) => ({ monthKey, income: 0, spending: 0 }))
+  const rowByMonth = new Map(rows.map((row) => [row.monthKey, row]))
+  const inScope = scopeFilter(buckets, owners)
+
+  for (const transaction of transactions) {
+    if (transaction.currency !== currency) continue
+    const row = rowByMonth.get(monthKeyFromDate(transaction.date))
+    if (!row) continue
+    if (isScopedIncome(transaction, inScope)) row.income = roundMoney(row.income + transaction.amount)
+    if (isScopedSpending(transaction, inScope)) row.spending = roundMoney(row.spending + transaction.amount)
+  }
+  return rows
+}
+
+/** Spending of one month and currency per category id ('' = uncategorized), same rules as the month "Spent" total. */
+export function spendingByCategory(
+  buckets: Bucket[],
+  transactions: Transaction[],
+  monthKey: string,
+  owners: BucketOwner[] | null,
+  currency: string,
+): Map<string, number> {
+  const inScope = scopeFilter(buckets, owners)
+  const totals = new Map<string, number>()
+  for (const transaction of transactions) {
+    if (transaction.currency !== currency || monthKeyFromDate(transaction.date) !== monthKey) continue
+    if (!isScopedSpending(transaction, inScope)) continue
+    const key = transaction.categoryId ?? ''
+    totals.set(key, roundMoney((totals.get(key) ?? 0) + transaction.amount))
+  }
+  return totals
+}
+
+/** Currencies that have any income or spending in the given months, most used first. */
+export function activeCurrencies(transactions: Transaction[], monthKeys: string[]): string[] {
+  const months = new Set(monthKeys)
+  const counts = new Map<string, number>()
+  for (const transaction of transactions) {
+    if (transaction.type !== 'income' && transaction.type !== 'expense') continue
+    if (!months.has(monthKeyFromDate(transaction.date))) continue
+    counts.set(transaction.currency, (counts.get(transaction.currency) ?? 0) + 1)
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([currency]) => currency)
+}
+
+type ScopeFilter = { bucketById: Map<string, Bucket>; ownerAllowed: (bucketId: string) => boolean }
+
+function scopeFilter(buckets: Bucket[], owners: BucketOwner[] | null): ScopeFilter {
+  const bucketById = new Map(buckets.map((bucket) => [bucket.id, bucket]))
+  return {
+    bucketById,
+    ownerAllowed: (bucketId) => {
+      if (!owners) return true
+      const owner = bucketById.get(bucketId)?.ownerId
+      return owner ? owners.includes(owner) : false
+    },
+  }
+}
+
+function isScopedIncome(transaction: Transaction, scope: ScopeFilter) {
+  return transaction.type === 'income' && scope.ownerAllowed(transaction.bucketId)
+}
+
+function isScopedSpending(transaction: Transaction, scope: ScopeFilter) {
+  return (
+    transaction.type === 'expense' &&
+    scope.bucketById.get(transaction.bucketId)?.kind !== 'business' &&
+    scope.ownerAllowed(transaction.bucketId)
+  )
 }
