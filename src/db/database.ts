@@ -1,6 +1,16 @@
 import Dexie, { type Table } from 'dexie'
 import dexieCloud from 'dexie-cloud-addon'
-import type { AppSettings, Bucket, Category, IncomeSource, Transaction } from '../types'
+import type {
+  AppSettings,
+  Bucket,
+  Category,
+  FitnessGoal,
+  FitnessProfile,
+  IncomeSource,
+  Meal,
+  Transaction,
+  Workout,
+} from '../types'
 
 const cloudUrl = import.meta.env.VITE_DEXIE_CLOUD_URL as string | undefined
 
@@ -25,6 +35,10 @@ export class FinanceDatabase extends Dexie {
   incomeSources!: Table<IncomeSource, string>
   categories!: Table<Category, string>
   transactions!: Table<Transaction, string>
+  workouts!: Table<Workout, string>
+  meals!: Table<Meal, string>
+  fitnessGoals!: Table<FitnessGoal, string>
+  fitnessProfiles!: Table<FitnessProfile, string>
 
   constructor() {
     super('FamilyFinanceDashboard', cloudUrl ? { addons: [dexieCloud] } : undefined)
@@ -60,6 +74,16 @@ export class FinanceDatabase extends Dexie {
         monthClosures: null,
         ...realmTables,
       })
+
+    // v4: fitness tables. Purely additive — the finance tables above are not touched,
+    // and there is deliberately no upgrade() content migration on synced tables.
+    this.version(4).stores({
+      workouts: 'id, realmId, ownerId, date, kind',
+      meals: 'id, realmId, ownerId, date',
+      fitnessGoals: 'id, realmId, ownerId, done',
+      fitnessProfiles: 'id, realmId, ownerId',
+      ...realmTables,
+    })
 
     if (cloudUrl) {
       this.cloud.configure({

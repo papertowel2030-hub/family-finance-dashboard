@@ -19,7 +19,7 @@ if (!realmId || !cloudExport.data?.[realmId]) {
   throw new Error('The local backup realm is not present in the cloud export.')
 }
 
-const tableNames = ['settings', 'buckets', 'incomeSources', 'categories', 'transactions']
+const tableNames = ['settings', 'buckets', 'incomeSources', 'categories', 'transactions', 'workouts', 'meals', 'fitnessGoals', 'fitnessProfiles']
 const additions = {}
 const counts = {}
 
