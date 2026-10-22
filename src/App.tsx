@@ -14,6 +14,7 @@ import {
   CloudOff,
   Coins,
   Download,
+  Dumbbell,
   Edit3,
   HandCoins,
   LineChart,
@@ -59,6 +60,8 @@ import {
 import { backupFileName, exportBackup, mergeBackup, parseBackup } from './db/backup'
 import { listDeletedTransactions, RECOVERY_KEEP_DAYS, restoreDeleted, type RecoveryEntry, updateRecoveryLog } from './db/recovery'
 import { requestCloudSync } from './db/sync'
+import { FitnessApp } from './fitness/FitnessApp'
+import { FitnessBoundary } from './fitness/FitnessBoundary'
 import { activeCurrencies, computeLedger, monthFlowTotals, monthTrend, spendingByCategory } from './lib/ledger'
 import type {
   AppSettings,
@@ -133,6 +136,17 @@ const COMMON_CURRENCIES = ['RUB', 'USD', 'EUR', 'GBP', 'AED', 'TRY', 'GEL', 'KZT
 
 // Who is looking at Home right now. Not a stored identity — a quick lens either person can flip.
 // Kept in a module variable so switching tabs and back doesn't lose it, but a fresh load starts neutral.
+type Section = 'finance' | 'fitness'
+const SECTION_KEY = 'familyFinanceSection'
+
+function readSection(): Section {
+  try {
+    return window.localStorage.getItem(SECTION_KEY) === 'fitness' ? 'fitness' : 'finance'
+  } catch {
+    return 'finance'
+  }
+}
+
 type ViewerId = 'all' | 'moon' | 'alena'
 let sessionViewer: ViewerId = 'all'
 
@@ -229,6 +243,7 @@ function FinanceApp() {
   ) as DXCUserInteraction | undefined
 
   const [tab, setTab] = useState<Tab>('home')
+  const [section, setSectionState] = useState<Section>(readSection)
   const [filters, setFilters] = useState<Filters>(emptyFilters)
   const [editing, setEditing] = useState<Transaction | null>(null)
   const [monthKey, setMonthKey] = useState(currentMonthKey())
@@ -271,6 +286,16 @@ function FinanceApp() {
     return () => window.clearTimeout(timer)
   }, [settings, activeRealmId, buckets, sources, categories, transactions])
 
+  const setSection = (next: Section) => {
+    setSectionState(next)
+    try {
+      window.localStorage.setItem(SECTION_KEY, next)
+    } catch {
+      // Remembering the section is a convenience only.
+    }
+  }
+  const showFinance = section === 'finance'
+
   const ledger = useMemo(() => computeLedger(buckets ?? [], transactions ?? [], monthKey), [buckets, transactions, monthKey])
 
   const filteredTransactions = useMemo(() => filterTransactions(transactions ?? [], filters), [transactions, filters])
@@ -282,7 +307,7 @@ function FinanceApp() {
       <header className="topbar">
         <div>
           <p className="eyebrow">Moon &amp; Alena</p>
-          <h1>Family Finance</h1>
+          <h1>{showFinance ? 'Family Finance' : 'Family Fitness'}</h1>
         </div>
         <div className="top-actions">
           <SyncBadge currentUser={currentUser} syncState={syncState} />
@@ -297,9 +322,24 @@ function FinanceApp() {
       ) : (
         <>
           {invites && invites.length > 0 ? <InvitePanel invites={invites} /> : null}
-          <TabBar tab={tab} setTab={setTab} />
+          <div className="section-switch" role="group" aria-label="Section">
+            <button type="button" className={showFinance ? 'active' : ''} aria-pressed={showFinance} onClick={() => setSection('finance')}>
+              <Wallet size={18} />
+              Finance
+            </button>
+            <button type="button" className={!showFinance ? 'active' : ''} aria-pressed={!showFinance} onClick={() => setSection('fitness')}>
+              <Dumbbell size={18} />
+              Fitness
+            </button>
+          </div>
+          {!showFinance ? (
+            <FitnessBoundary onBack={() => setSection('finance')}>
+              <FitnessApp realmId={activeRealmId} />
+            </FitnessBoundary>
+          ) : null}
+          {showFinance ? <TabBar tab={tab} setTab={setTab} /> : null}
 
-          {tab === 'home' ? (
+          {showFinance && tab === 'home' ? (
             <Dashboard
               ledger={ledger}
               monthKey={monthKey}
@@ -316,7 +356,7 @@ function FinanceApp() {
             />
           ) : null}
 
-          {tab === 'add' ? (
+          {showFinance && tab === 'add' ? (
             <RecordMoney
               settings={settings}
               buckets={activeBuckets}
@@ -326,7 +366,7 @@ function FinanceApp() {
             />
           ) : null}
 
-          {tab === 'activity' ? (
+          {showFinance && tab === 'activity' ? (
             <div className="activity-stack">
               <FiltersPanel filters={filters} setFilters={setFilters} buckets={buckets ?? []} sources={sources ?? []} categories={categories ?? []} />
               <History
@@ -351,7 +391,7 @@ function FinanceApp() {
             </div>
           ) : null}
 
-          {tab === 'setup' ? (
+          {showFinance && tab === 'setup' ? (
             <ManagementPanel
               settings={settings}
               buckets={buckets ?? []}

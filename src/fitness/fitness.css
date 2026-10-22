@@ -1,0 +1,723 @@
+/* Fitness section. Reuses the finance tokens; adds a leaf-green accent. */
+[data-section='fitness'],
+.section-switch {
+  --leaf: #4f7a58;
+  --leaf-soft: #dfeadc;
+}
+
+.section-switch {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 14px;
+}
+
+.section-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.section-switch button.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fffaf2;
+}
+
+.fit-who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.fit-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.fit-week-card h2,
+.fit-buddy h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fit-week {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0 14px;
+}
+
+.fit-dot {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.fit-dot i {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  background: transparent;
+}
+
+.fit-dot.on i {
+  background: var(--leaf);
+  border-color: var(--leaf);
+  box-shadow: inset 0 0 0 5px var(--leaf-soft);
+}
+
+.fit-dot.today i {
+  border-color: var(--ink);
+}
+
+.fit-dot.on.today i {
+  border-color: var(--leaf);
+  box-shadow: 0 0 0 3px var(--leaf-soft), inset 0 0 0 5px var(--leaf-soft);
+}
+
+.fit-dot.future i {
+  border-style: dashed;
+  opacity: 0.6;
+}
+
+.fit-dot small {
+  color: var(--muted);
+  font-weight: 800;
+  font-size: 0.74rem;
+}
+
+.fit-week.compact .fit-dot i {
+  width: 20px;
+  height: 20px;
+  border-width: 2px;
+}
+
+.fit-week.compact .fit-dot.on i {
+  box-shadow: inset 0 0 0 3px var(--leaf-soft);
+}
+
+.fit-week-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+  color: var(--muted);
+}
+
+.fit-week-summary strong {
+  color: var(--ink);
+}
+
+.fit-streak {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--amber-soft);
+  color: var(--warning);
+  font-weight: 800;
+  font-size: 0.86rem;
+}
+
+.fit-nudges {
+  display: grid;
+  gap: 8px;
+}
+
+.fit-nudge {
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: var(--amber-soft);
+  border: 1px solid rgba(196, 124, 44, 0.3);
+  color: var(--warning);
+  font-weight: 700;
+}
+
+.fit-nudge.rest {
+  background: var(--blue-soft);
+  border-color: rgba(47, 111, 159, 0.25);
+  color: #24557a;
+}
+
+.fit-rings {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.fit-ring {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  text-align: center;
+}
+
+.fit-ring svg {
+  display: block;
+}
+
+.fit-ring-track {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 8;
+  opacity: 0.6;
+}
+
+.fit-ring-fill {
+  fill: none;
+  stroke: var(--leaf);
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.4s ease;
+}
+
+.fit-ring.amber .fit-ring-fill {
+  stroke: var(--amber);
+}
+
+.fit-ring.blue .fit-ring-fill {
+  stroke: var(--blue);
+}
+
+.fit-ring.done .fit-ring-track {
+  stroke: currentColor;
+  opacity: 0.18;
+}
+
+.fit-ring-text {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 92px;
+  display: grid;
+  place-content: center;
+  line-height: 1.1;
+}
+
+.fit-ring-text strong {
+  font-size: 1.15rem;
+}
+
+.fit-ring-text span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.fit-ring p {
+  margin: 4px 0 0;
+  font-weight: 800;
+}
+
+.fit-ring p small {
+  color: var(--muted);
+}
+
+.fit-chip-rows {
+  display: grid;
+  gap: 10px;
+}
+
+.fit-chip-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fit-chip-row > span {
+  width: 72px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.fit-chip {
+  min-height: 40px;
+  min-width: 64px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-weight: 800;
+}
+
+.fit-chip.leaf {
+  background: var(--leaf-soft);
+  color: #2f5538;
+}
+
+.fit-chip.amber {
+  background: var(--amber-soft);
+  color: var(--warning);
+}
+
+.fit-chip.blue {
+  background: var(--blue-soft);
+  color: #24557a;
+}
+
+.fit-chip:active {
+  transform: scale(0.96);
+}
+
+.fit-custom-toggle {
+  margin-top: 12px;
+}
+
+.fit-custom {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 12px;
+}
+
+.fit-entries {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.fit-entries li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.42);
+  font-weight: 700;
+}
+
+.fit-entries small {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.fit-nudge + .fit-nudge {
+  margin-top: 0;
+}
+
+/* Log */
+.fit-kinds button {
+  min-height: 44px;
+}
+
+.fit-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fit-sets {
+  display: grid;
+  gap: 10px;
+}
+
+.fit-sets-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-weight: 800;
+}
+
+.fit-repeat {
+  min-height: 34px;
+  font-size: 0.82rem;
+  white-space: normal;
+  text-align: left;
+}
+
+.fit-set-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1.4fr) 40px;
+  gap: 10px;
+  align-items: end;
+}
+
+.fit-set-number {
+  align-self: center;
+  justify-self: center;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--leaf-soft);
+  color: #2f5538;
+  font-weight: 800;
+  font-size: 0.8rem;
+  margin-top: 20px;
+}
+
+.fit-add-set {
+  justify-self: start;
+}
+
+.fit-effort {
+  display: grid;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.fit-effort > div {
+  display: flex;
+  gap: 6px;
+}
+
+.fit-effort button {
+  flex: 1;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.fit-effort button.active {
+  background: var(--leaf);
+  border-color: var(--leaf);
+  color: #fffaf2;
+}
+
+.fit-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+}
+
+.fit-check input {
+  width: 20px;
+  min-height: 20px;
+  height: 20px;
+}
+
+.fit-check small,
+.fit-note small,
+.fit-form-grid small,
+.fit-goal-grid small {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.fit-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: #2f5538;
+  font-weight: 800;
+}
+
+/* Journal */
+.fit-week-minutes {
+  margin: 0 0 14px;
+}
+
+.fit-progress-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.fit-progress-card {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.fit-progress-card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.fit-progress-card p {
+  margin: 0;
+}
+
+.fit-spark {
+  display: block;
+  max-width: 100%;
+}
+
+.fit-spark polyline {
+  stroke: var(--leaf);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.fit-spark circle {
+  fill: var(--leaf);
+}
+
+.fit-spark-empty {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.fit-gain {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.fit-gain.up {
+  color: #2f5538;
+}
+
+.fit-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.fit-history button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.42);
+  text-align: left;
+  color: inherit;
+}
+
+.fit-history-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.fit-history-main small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.fit-history-note {
+  font-style: italic;
+}
+
+.fit-history time {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.fit-niggle {
+  margin-left: 6px;
+  color: var(--amber);
+  vertical-align: -2px;
+}
+
+.type-chip.fit-kind.strength {
+  background: var(--leaf-soft);
+  color: #2f5538;
+}
+
+.type-chip.fit-kind.cardio {
+  background: var(--blue-soft);
+  color: #24557a;
+}
+
+.type-chip.fit-kind.sport {
+  background: var(--amber-soft);
+  color: var(--warning);
+}
+
+/* Goals */
+.fit-goals {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.fit-goal {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.fit-goal.done .fit-goal-title strong {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.fit-goal-check {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: #fffaf2;
+}
+
+.fit-goal-check.on {
+  background: var(--leaf);
+  border-color: var(--leaf);
+}
+
+.fit-goal-body {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fit-goal-body p {
+  margin: 0;
+}
+
+.fit-goal-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.fit-area {
+  background: var(--plum-soft);
+  color: var(--plum);
+}
+
+.fit-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.fit-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--leaf);
+  transition: width 0.3s ease;
+}
+
+.fit-goal-update {
+  display: flex;
+  gap: 8px;
+  max-width: 280px;
+}
+
+.fit-goal-update input {
+  min-width: 0;
+  flex: 1;
+}
+
+.fit-subhead {
+  margin: 20px 0 10px;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.fit-archived-toggle {
+  margin-top: 14px;
+}
+
+.fit-targets-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.fit-goal-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fit-targets-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+@media (max-width: 900px) {
+  .fit-targets-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .fit-progress-grid,
+  .fit-form-grid,
+  .fit-goal-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fit-custom {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .fit-custom .primary-button {
+    grid-column: 1 / -1;
+  }
+
+  .fit-chip-row > span {
+    width: 100%;
+  }
+
+  .fit-history button {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .fit-history .type-chip {
+    display: none;
+  }
+
+  .fit-ring svg {
+    width: 78px;
+    height: 78px;
+  }
+
+  .fit-ring-text {
+    height: 78px;
+  }
+}
+
+/* Dialogs opened from Fitness must sit above the sticky tab bar. */
+[data-section='fitness'] .dialog-backdrop {
+  z-index: 50;
+}
