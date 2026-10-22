@@ -169,6 +169,33 @@ export async function deleteWorkout(id: string) {
   await db.workouts.delete(id)
 }
 
+/**
+ * Old hidden copies: training entries with no family space whose day, person and kind are already
+ * covered by an entry inside `realmId`. Nothing else qualifies, so a day only logged in the old
+ * (hidden) row is never touched. Returns nothing when there is no active family space.
+ */
+export async function findDuplicateOrphans(realmId?: string): Promise<Workout[]> {
+  if (!realmId) return []
+  const all = await db.workouts.toArray()
+  const key = (workout: Workout) => `${workout.ownerId}|${workout.date}|${workout.kind}`
+  const covered = new Set(all.filter((workout) => workout.realmId === realmId && workout.kind !== 'rest').map(key))
+  return all.filter((workout) => !workout.realmId && workout.kind !== 'rest' && covered.has(key(workout)))
+}
+
+/** Deletes the rows `findDuplicateOrphans` lists, in one transaction. Returns them so the caller can offer Undo. */
+export async function removeDuplicateOrphans(realmId?: string): Promise<Workout[]> {
+  return db.transaction('rw', db.workouts, async () => {
+    const rows = await findDuplicateOrphans(realmId)
+    await db.workouts.bulkDelete(rows.map((row) => row.id))
+    return rows
+  })
+}
+
+/** Undo for removeDuplicateOrphans. */
+export async function restoreWorkouts(rows: Workout[]) {
+  await db.workouts.bulkPut(rows)
+}
+
 /** Undo for deleteWorkout: put the exact row back. */
 export async function restoreWorkout(workout: Workout) {
   await db.workouts.put(workout)
