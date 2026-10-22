@@ -1,4 +1,4 @@
-const CACHE_NAME = 'family-finance-v2'
+const CACHE_NAME = 'family-finance-v3'
 const APP_SHELL_URL = new URL('./', self.location.href).href
 const STATIC_ASSETS = [APP_SHELL_URL, new URL('./manifest.webmanifest', self.location.href).href, new URL('./icons/icon.svg', self.location.href).href]
 
