@@ -289,7 +289,9 @@ export function WorkoutForm({
 
       <label className="fit-check">
         <input type="checkbox" checked={niggle} onChange={(event) => setNiggle(event.target.checked)} />
-        Something hurt <small>— so we can keep an eye on it</small>
+        <span>
+          Something hurt? <small>We’ll keep an eye on it.</small>
+        </span>
       </label>
 
       {error ? <p className="form-error">{error}</p> : null}

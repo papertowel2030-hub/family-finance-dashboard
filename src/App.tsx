@@ -924,7 +924,7 @@ function Dashboard({
         <div className="hero-main">
           <span className="hero-label">
             <PiggyBank size={16} />
-            {heroLabel} · {formatMonth(monthKey)}
+            {heroLabel}
           </span>
           {saved.length ? (
             <strong className={`hero-value ${allOver ? 'over' : ''}`}>
@@ -933,7 +933,7 @@ function Dashboard({
                 .join(' · ')}
             </strong>
           ) : (
-            <strong className="hero-value quiet">Nothing recorded yet</strong>
+            <strong className="hero-value quiet">Nothing recorded yet. Blank canvas.</strong>
           )}
         </div>
         <div className="hero-flows">
@@ -1136,7 +1136,7 @@ function MonthInsights({
             })}
           </div>
         ) : (
-          <p className="empty-state">No income or spending in {currency} yet.</p>
+          <p className="empty-state">No income or spending in {currency} yet. Peaceful.</p>
         )}
       </div>
 
@@ -1184,7 +1184,7 @@ function MonthInsights({
             )
           })
         ) : (
-          <p className="empty-state">No spending in {currency} this month.</p>
+          <p className="empty-state">No spending in {currency} this month. Suspiciously frugal.</p>
         )}
         {showAllCategories && categoryRows.canCollapse ? (
           <button type="button" className="ghost-button show-less" onClick={() => setShowAllCategories(false)}>
@@ -1266,7 +1266,7 @@ function BucketGroupView({
       {primary.length ? (
         <div className="bucket-list">{primary.map(renderRow)}</div>
       ) : secondary.length ? null : (
-        <p className="empty-state">No buckets here yet.</p>
+        <p className="empty-state">No buckets yet. Your money is house-hunting.</p>
       )}
       {secondary.length && partner ? (
         <div className="partner-block">
@@ -1756,7 +1756,7 @@ function RecoveryPanel({
           ) : null}
         </div>
       ) : (
-        <p className="empty-state">Nothing deleted recently.</p>
+        <p className="empty-state">Nothing deleted. Squeaky clean.</p>
       )}
       {message ? <p className="small-label">{message}</p> : null}
     </div>
@@ -2062,7 +2062,7 @@ function ManagedNameList({
           ))}
         </div>
       ) : (
-        <p className="empty-state">{query ? 'No matches.' : 'Empty'}</p>
+        <p className="empty-state">{query ? 'No matches. Even the search is confused.' : 'Empty. Nothing to see here.'}</p>
       )}
       {archivedTotal ? (
         <>
@@ -2469,7 +2469,7 @@ function History({
           ) : null}
         </div>
       ) : open ? (
-        <p className="empty-state">No transactions.</p>
+        <p className="empty-state">No transactions. The wallet is on holiday.</p>
       ) : null}
     </section>
   )

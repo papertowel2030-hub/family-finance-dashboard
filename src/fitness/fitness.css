@@ -109,19 +109,6 @@
   box-shadow: inset 0 0 0 3px var(--leaf-soft);
 }
 
-.fit-week-summary {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin: 0;
-  color: var(--muted);
-}
-
-.fit-week-summary strong {
-  color: var(--ink);
-}
-
 .fit-streak {
   display: inline-flex;
   align-items: center;
@@ -229,25 +216,6 @@
 
 .fit-ring p small {
   color: var(--muted);
-}
-
-.fit-chip-rows {
-  display: grid;
-  gap: 10px;
-}
-
-.fit-chip-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.fit-chip-row > span {
-  width: 72px;
-  color: var(--muted);
-  font-size: 0.86rem;
-  font-weight: 800;
 }
 
 .fit-chip {
@@ -410,9 +378,15 @@
 }
 
 .fit-check input {
-  width: 20px;
-  min-height: 20px;
-  height: 20px;
+  flex: none;
+  width: 24px;
+  min-height: 24px;
+  height: 24px;
+  accent-color: var(--leaf);
+}
+
+.fit-check small {
+  display: block;
 }
 
 .fit-check small,
@@ -697,10 +671,6 @@
     grid-column: 1 / -1;
   }
 
-  .fit-chip-row > span {
-    width: 100%;
-  }
-
   .fit-history button {
     grid-template-columns: minmax(0, 1fr) auto;
   }
@@ -767,33 +737,6 @@ button.fit-dot {
 
 .fit-week-card .section-header {
   align-items: flex-start;
-}
-
-.fit-week-summary {
-  gap: 16px;
-}
-
-.fit-week-summary > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.fit-legend-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: 2px solid var(--line);
-}
-
-.fit-legend-dot.on {
-  background: var(--leaf);
-  border-color: var(--leaf);
-}
-
-.fit-legend-dot.rest {
-  background: var(--blue-soft);
-  border-color: rgba(47, 111, 159, 0.5);
 }
 
 .fit-day-bar {
@@ -1063,49 +1006,6 @@ button.fit-dot {
   margin: 0;
 }
 
-.fit-month-stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.fit-month-stats .stat {
-  display: grid;
-  justify-items: center;
-  padding: 10px 6px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.5);
-  border: 1px solid var(--line);
-}
-
-.fit-month-stats .stat strong {
-  font-size: 1.6rem;
-  line-height: 1.1;
-}
-
-.fit-month-stats .stat span {
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-
-.fit-month-stats .stat.trained {
-  background: var(--leaf-soft);
-}
-
-.fit-month-stats .stat.trained strong {
-  color: #2f5538;
-}
-
-.fit-month-stats .stat.rest {
-  background: #e6e3f0;
-}
-
-.fit-month-stats .stat.rest strong {
-  color: #4d4a7a;
-}
-
 .fit-cal-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -1339,4 +1239,216 @@ button.fit-dot {
     height: 15px;
     font-size: 0.58rem;
   }
+}
+
+/* ---- Mobile polish: one-handed, mid-workout ------------------------------- */
+.fit-week-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.section-header h2 small,
+.fit-week-head h2 small {
+  margin-left: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.fit-week-head h2 small {
+  display: block;
+  margin: 2px 0 0;
+}
+
+.fit-week-card .fit-week {
+  margin-bottom: 0;
+}
+
+.fit-macros {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fit-macro {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  align-content: start;
+}
+
+.fit-macro-chips {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+}
+
+.fit-macro-chips .fit-chip {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 6px;
+}
+
+.fit-tile,
+.fit-chip,
+.fit-stepper button,
+.fit-dot {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+@media (max-width: 620px), (pointer: coarse) {
+  .fit-goal-check {
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+  }
+}
+
+@media (max-width: 620px) {
+  .fit-who {
+    margin-bottom: 10px;
+  }
+
+  .fit-who .segmented-control {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+
+  .fit-who .segmented-control button {
+    min-height: 44px;
+  }
+
+  .fit-stack {
+    gap: 12px;
+  }
+
+  .fit-stack > .panel {
+    padding: 14px;
+  }
+
+  .fit-week {
+    gap: 2px;
+    margin-top: 10px;
+  }
+
+  .fit-day-bar {
+    gap: 8px;
+  }
+
+  .fit-legend {
+    gap: 6px 12px;
+    font-size: 0.74rem;
+  }
+
+  .fit-macro-chips .fit-chip {
+    font-size: 0.9rem;
+  }
+}
+
+/* Leave room to scroll the form clear of the Undo toast. */
+@media (max-width: 620px) {
+  .fitness.has-toast {
+    padding-bottom: 76px;
+  }
+}
+
+/* ---- Polish: playful, soft, a little bouncy -------------------------------- */
+.fitness .tab-bar button.active {
+  background: var(--leaf-soft);
+  color: #2f5538;
+}
+
+@media (min-width: 621px) {
+  .fitness .tab-bar button.active {
+    background: var(--ink);
+    color: #fffaf2;
+  }
+}
+
+.fit-tile {
+  border-radius: 20px;
+  transition: transform 0.12s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.fit-tile:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.fit-tile.done {
+  box-shadow: 0 8px 20px rgba(79, 122, 88, 0.18);
+}
+
+.fit-tile.done .fit-tile-icon {
+  animation: fit-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.fit-tile-icon {
+  width: 46px;
+  height: 46px;
+}
+
+@keyframes fit-pop {
+  0% {
+    transform: scale(0.4);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.fit-chip {
+  transition: transform 0.12s ease;
+}
+
+.fit-dot i {
+  transition: background-color 0.2s ease, transform 0.15s ease;
+}
+
+.fit-dot:active i {
+  transform: scale(0.88);
+}
+
+.fit-streak {
+  animation: fit-wiggle 2.8s ease-in-out infinite;
+  transform-origin: 50% 80%;
+}
+
+@keyframes fit-wiggle {
+  0%,
+  86%,
+  100% {
+    transform: rotate(0);
+  }
+  90% {
+    transform: rotate(-4deg);
+  }
+  95% {
+    transform: rotate(4deg);
+  }
+}
+
+.fit-cal-day {
+  border-radius: 14px;
+}
+
+.fit-nudge {
+  border-radius: 16px;
+}
+
+.fit-progress-card,
+.fit-goal {
+  border-radius: 16px;
+}
+
+.fit-ring-fill {
+  transition: stroke-dasharray 0.6s cubic-bezier(0.34, 1.2, 0.64, 1);
+}
+
+.fit-week-card .fit-week-head h2 {
+  display: block;
 }

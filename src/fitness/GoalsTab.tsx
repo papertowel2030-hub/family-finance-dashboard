@@ -25,14 +25,9 @@ export function GoalsTab({ data, person, onDeleted }: { data: FitnessData; perso
 
   return (
     <div className="fit-stack">
-      <TargetsCard data={data} person={person} />
-
       <section className="panel">
         <div className="section-header compact">
-          <div>
-            <p className="eyebrow">Goals</p>
-            <h2>What I'm working toward</h2>
-          </div>
+          <h2>What I'm working toward</h2>
           <button type="button" className="primary-button" onClick={() => setEditing('new')}>
             <Plus size={18} />
             Add goal
@@ -47,7 +42,7 @@ export function GoalsTab({ data, person, onDeleted }: { data: FitnessData; perso
           </ul>
         ) : (
           <p className="empty-state">
-            No goals yet. Try “Squat 100 kg”, “Run 5 km without stopping”, “Train 3× a week for 3 months” or “No injuries this season”.
+            No goals yet. Try “Squat 100 kg”, “Run 5 km without stopping” or “Train 3× a week for 3 months”. “Never skip leg day” also counts.
           </p>
         )}
 
@@ -75,6 +70,8 @@ export function GoalsTab({ data, person, onDeleted }: { data: FitnessData; perso
           </ul>
         ) : null}
       </section>
+
+      <TargetsCard data={data} person={person} />
 
       {editing ? (
         <GoalDialog
@@ -131,7 +128,7 @@ function GoalCard({ goal, onEdit }: { goal: FitnessGoal; onEdit: () => void }) {
                   setValue('')
                 }}
               >
-                <input inputMode="decimal" value={value} onChange={(event) => setValue(event.target.value)} placeholder="New current" aria-label={`Update ${goal.title}`} />
+                <input inputMode="decimal" value={value} onChange={(event) => setValue(event.target.value)} placeholder="Now at…" aria-label={`Update ${goal.title}`} />
                 <button type="submit" className="ghost-button">
                   Update
                 </button>
@@ -168,12 +165,9 @@ function TargetsForm({ current, person, realmId }: { current: ReturnType<typeof 
   return (
     <section className="panel">
       <div className="section-header compact">
-        <div>
-          <p className="eyebrow">Daily &amp; weekly</p>
-          <h2>
-            <Target size={18} /> My targets
-          </h2>
-        </div>
+        <h2>
+          <Target size={18} /> My targets
+        </h2>
       </div>
       <form
         className="entry-form"
