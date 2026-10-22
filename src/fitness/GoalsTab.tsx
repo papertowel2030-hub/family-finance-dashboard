@@ -1,6 +1,20 @@
 import { useState } from 'react'
-import { Archive, Check, Pencil, Plus, Target, Trash2 } from 'lucide-react'
-import { addGoal, deleteGoal, profileOrDefault, restoreGoal, saveProfile, setGoalArchived, setGoalCurrent, setGoalDone, updateGoal } from '../db/fitnessActions'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { Archive, Check, Eraser, Pencil, Plus, Target, Trash2 } from 'lucide-react'
+import {
+  addGoal,
+  deleteGoal,
+  findDuplicateOrphans,
+  profileOrDefault,
+  removeDuplicateOrphans,
+  restoreGoal,
+  restoreWorkouts,
+  saveProfile,
+  setGoalArchived,
+  setGoalCurrent,
+  setGoalDone,
+  updateGoal,
+} from '../db/fitnessActions'
 import { progressRatio } from '../lib/fitness'
 import type { FitnessGoal, GoalArea, OwnerId } from '../types'
 import { formatShortDate } from '../utils/date'
@@ -72,6 +86,8 @@ export function GoalsTab({ data, person, onDeleted }: { data: FitnessData; perso
       </section>
 
       <TargetsCard data={data} person={person} />
+
+      <OldCopiesCard realmId={data.realmId} onDeleted={onDeleted} />
 
       {editing ? (
         <GoalDialog
@@ -353,5 +369,42 @@ function GoalDialog({
         )}
       </form>
     </div>
+  )
+}
+
+/** Shown only while hidden copies from the first notebook import still exist; vanishes after cleanup. */
+function OldCopiesCard({ realmId, onDeleted }: { realmId?: string; onDeleted: OnDeleted }) {
+  const copies = useLiveQuery(() => findDuplicateOrphans(realmId), [realmId], [])
+  const [error, setError] = useState('')
+  if (!copies?.length) return null
+
+  return (
+    <section className="panel">
+      <div className="section-header compact">
+        <h2>
+          <Eraser size={18} /> Tidy up old copies
+        </h2>
+      </div>
+      <p className="small-label">
+        {copies.length} entries from your first import are hidden twins of days that are already in your journal. Removing them changes nothing you can see.
+      </p>
+      {error ? <p className="form-error">{error}</p> : null}
+      <button
+        type="button"
+        className="ghost-button"
+        onClick={async () => {
+          if (!window.confirm(`Remove ${copies.length} hidden old copies? Your journal and the days it shows stay as they are.`)) return
+          setError('')
+          try {
+            const removed = await removeDuplicateOrphans(realmId)
+            onDeleted(`Removed ${removed.length} old copies`, () => restoreWorkouts(removed))
+          } catch (err) {
+            setError(err instanceof Error ? err.message : String(err))
+          }
+        }}
+      >
+        Remove {copies.length} old copies
+      </button>
+    </section>
   )
 }

@@ -8,11 +8,14 @@ import {
   addWorkout,
   deleteMeal,
   deleteWorkout,
+  findDuplicateOrphans,
   isBareMarker,
   logQuickSession,
   logRestDay,
   profileId,
+  removeDuplicateOrphans,
   restoreWorkout,
+  restoreWorkouts,
   saveProfile,
   setGoalCurrent,
   updateWorkout,
@@ -228,5 +231,48 @@ describe('backup with fitness data', () => {
     const bad = { app: 'family-finance-dashboard', version: 1, exportedAt: stamp, settings: [], buckets: [], incomeSources: [], categories: [], transactions: [], workouts: 'nope' }
     expect(() => parseBackup(JSON.stringify(bad))).toThrow('not a Family Finance backup')
     expect(() => parseBackup(JSON.stringify({ ...bad, workouts: [{ noId: true }] }))).toThrow('invalid record')
+  })
+})
+
+describe('old hidden copies', () => {
+  const row = (id: string, over: Partial<import('../types').Workout>): import('../types').Workout => ({
+    id,
+    realmId: undefined,
+    ownerId: 'moon',
+    date: '2026-09-01',
+    kind: 'strength',
+    title: 'Strength',
+    createdAt: stamp,
+    updatedAt: stamp,
+    ...over,
+  })
+
+  it('finds only realm-less training rows already covered inside the realm', async () => {
+    await db.workouts.bulkAdd([
+      row('orphan_dup', {}),
+      row('orphan_only', { date: '2026-09-02' }),
+      row('orphan_other_kind', { kind: 'cardio' }),
+      row('orphan_other_person', { ownerId: 'alena' }),
+      row('visible', { realmId: REALM }),
+      row('visible_rest', { realmId: REALM, date: '2026-09-03', kind: 'rest', title: 'Rest' }),
+      row('orphan_rest', { date: '2026-09-03', kind: 'rest', title: 'Rest' }),
+    ])
+    expect((await findDuplicateOrphans(REALM)).map((workout) => workout.id)).toEqual(['orphan_dup'])
+  })
+
+  it('does nothing without an active family space', async () => {
+    await db.workouts.bulkAdd([row('a', {}), row('b', { id: 'b' })].map((workout, index) => ({ ...workout, id: `x${index}` })))
+    expect(await findDuplicateOrphans(undefined)).toEqual([])
+    expect((await removeDuplicateOrphans(undefined)).length).toBe(0)
+    expect(await db.workouts.count()).toBe(2)
+  })
+
+  it('removes the copies, keeps everything else, and can be undone', async () => {
+    await db.workouts.bulkAdd([row('orphan_dup', {}), row('orphan_only', { date: '2026-09-02' }), row('visible', { realmId: REALM })])
+    const removed = await removeDuplicateOrphans(REALM)
+    expect(removed.map((workout) => workout.id)).toEqual(['orphan_dup'])
+    expect((await db.workouts.toArray()).map((workout) => workout.id).sort()).toEqual(['orphan_only', 'visible'])
+    await restoreWorkouts(removed)
+    expect(await db.workouts.count()).toBe(3)
   })
 })
