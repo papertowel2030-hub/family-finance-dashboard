@@ -1,50 +1,56 @@
 import { useMemo, useState } from 'react'
-import { AlertTriangle, TrendingUp } from 'lucide-react'
-import { addDays, exerciseHistory } from '../lib/fitness'
-import type { OwnerId, Workout, WorkoutKind } from '../types'
-import { formatShortDate } from '../utils/date'
-import { formatNumber, Sparkline, type FitnessData } from './shared'
+import { ChevronLeft, ChevronRight, Moon, Pencil, TrendingUp } from 'lucide-react'
+import { addDays, dayMap, dayTotals, exerciseHistory, weekDates, weekStart, weeklyCounts } from '../lib/fitness'
+import { profileOrDefault } from '../db/fitnessActions'
+import type { OwnerId, TrainingKind, Workout } from '../types'
+import { endDateForMonth, formatMonth, formatShortDate, formatWeekdayDate, monthKeyFromDate, nextMonthKey, previousMonthKey } from '../utils/date'
+import { DayEntries, formatNumber, Sparkline, type FitnessData, type OnDeleted } from './shared'
 
-type Filter = 'all' | WorkoutKind
-
-const FILTERS: Array<{ id: Filter; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'strength', label: 'Strength' },
-  { id: 'cardio', label: 'Cardio' },
-  { id: 'sport', label: 'Sport' },
-]
-
-const PAGE_SIZE = 15
 const MAX_PROGRESS_CARDS = 8
+const WEEKS_SHOWN = 8
+const KIND_LETTER: Record<TrainingKind, string> = { strength: 'S', cardio: 'E', sport: 'P' }
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-export function describeWorkout(workout: Workout) {
-  if (workout.kind === 'strength') {
-    const sets = workout.sets ?? []
-    if (!sets.length) return 'Session logged'
-    const grouped = sets.map((set) => `${set.reps}×${set.weight ? formatNumber(set.weight) : 'BW'}`).join(', ')
-    return `${sets.length} set${sets.length === 1 ? '' : 's'} · ${grouped}${sets.some((set) => set.weight) ? ' kg' : ''}`
-  }
-  const parts = [workout.minutes ? `${formatNumber(workout.minutes)} min` : '']
-  if (workout.distance) parts.push(`${formatNumber(workout.distance)} km`)
-  if (workout.effort) parts.push(`effort ${workout.effort}/5`)
-  return parts.filter(Boolean).join(' · ') || 'Session logged'
-}
+/**
+ * The visual page: a month calendar where every day reads at a glance (what you did, or rest),
+ * the last weeks against your target, then the selected day's detail and strength progress.
+ */
+export function JournalTab({
+  data,
+  person,
+  onEdit,
+  onDeleted,
+  onLogDay,
+}: {
+  data: FitnessData
+  person: OwnerId
+  onEdit: (workout: Workout) => void
+  onDeleted: OnDeleted
+  onLogDay: (date: string) => void
+}) {
+  const { today, workouts, meals, profiles } = data
+  const [month, setMonth] = useState(monthKeyFromDate(today))
+  const [selected, setSelected] = useState(today)
 
-export function JournalTab({ data, person, onEdit }: { data: FitnessData; person: OwnerId; onEdit: (workout: Workout) => void }) {
-  const [filter, setFilter] = useState<Filter>('all')
-  const [shown, setShown] = useState(PAGE_SIZE)
+  const profile = profileOrDefault(profiles.find((row) => row.ownerId === person), person)
+  const days = useMemo(() => dayMap(workouts, person), [workouts, person])
+  const mine = useMemo(() => workouts.filter((workout) => workout.ownerId === person), [workouts, person])
 
-  const mine = useMemo(() => data.workouts.filter((workout) => workout.ownerId === person), [data.workouts, person])
-  const visible = useMemo(
-    () =>
-      mine
-        .filter((workout) => filter === 'all' || workout.kind === filter)
-        .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)),
-    [mine, filter],
-  )
+  const monthStart = `${month}-01`
+  const monthEnd = endDateForMonth(month)
+  const gridStart = weekStart(monthStart)
+  const gridEnd = weekDates(monthEnd)[6]
+  const gridDates: string[] = []
+  for (let cursor = gridStart; cursor <= gridEnd; cursor = addDays(cursor, 1)) gridDates.push(cursor)
+
+  const monthDates = gridDates.filter((date) => date >= monthStart && date <= monthEnd)
+  const trainedCount = monthDates.filter((date) => days.get(date)?.workouts.length).length
+  const restCount = monthDates.filter((date) => days.get(date)?.rest).length
+  const missedCount = monthDates.filter((date) => date < today && !days.get(date)).length
+
+  const weeks = useMemo(() => weeklyCounts(workouts, person, today, WEEKS_SHOWN), [workouts, person, today])
 
   const exercises = useMemo(() => {
-    if (filter !== 'all' && filter !== 'strength') return []
     const titles = new Map<string, string>()
     mine
       .filter((workout) => workout.kind === 'strength')
@@ -53,48 +59,172 @@ export function JournalTab({ data, person, onEdit }: { data: FitnessData; person
         const key = workout.title.trim().toLowerCase()
         if (!titles.has(key)) titles.set(key, workout.title.trim())
       })
-    return [...titles.values()].slice(0, MAX_PROGRESS_CARDS).map((title) => ({ title, history: exerciseHistory(mine, person, title) }))
-  }, [mine, person, filter])
+    return [...titles.values()]
+      .map((title) => ({ title, history: exerciseHistory(mine, person, title) }))
+      .filter(({ history }) => history.some((point) => point.bestReps > 0))
+      .slice(0, MAX_PROGRESS_CARDS)
+  }, [mine, person])
 
-  const weekFrom = addDays(data.today, -6)
-  const weekMinutes = mine
-    .filter((workout) => workout.kind !== 'strength' && workout.date >= weekFrom && workout.date <= data.today)
-    .filter((workout) => filter === 'all' || workout.kind === filter)
-    .reduce((sum, workout) => sum + (workout.minutes ?? 0), 0)
+  const selectedInfo = days.get(selected)
+  const totals = dayTotals(meals, person, selected)
+  const hasTotals = totals.proteinG || totals.fiberG || totals.calories
+
+  const pick = (date: string) => {
+    setSelected(date)
+    setMonth(monthKeyFromDate(date))
+  }
 
   return (
     <div className="fit-stack">
-      <section className="panel">
-        <div className="section-header compact">
+      <section className="panel fit-cal">
+        <div className="fit-cal-head">
+          <button type="button" className="icon-button" aria-label="Previous month" onClick={() => setMonth(previousMonthKey(month))}>
+            <ChevronLeft size={20} />
+          </button>
           <div>
             <p className="eyebrow">Journal</p>
-            <h2>Progress &amp; history</h2>
+            <h2>{formatMonth(month)}</h2>
           </div>
-          <div className="segmented-control" role="group" aria-label="Filter journal">
-            {FILTERS.map(({ id, label }) => (
-              <button
-                key={id}
-                type="button"
-                className={filter === id ? 'active' : ''}
-                aria-pressed={filter === id}
-                onClick={() => {
-                  setFilter(id)
-                  setShown(PAGE_SIZE)
-                }}
-              >
-                {label}
-              </button>
-            ))}
+          <button type="button" className="icon-button" aria-label="Next month" disabled={month >= monthKeyFromDate(today)} onClick={() => setMonth(nextMonthKey(month))}>
+            <ChevronRight size={20} />
+          </button>
+        </div>
+
+        <div className="fit-month-stats">
+          <div className="stat trained">
+            <strong>{trainedCount}</strong>
+            <span>trained</span>
+          </div>
+          <div className="stat rest">
+            <strong>{restCount}</strong>
+            <span>rest</span>
+          </div>
+          <div className="stat missed">
+            <strong>{missedCount}</strong>
+            <span>not logged</span>
           </div>
         </div>
 
-        {filter !== 'strength' ? (
-          <p className="small-label fit-week-minutes">
-            Cardio &amp; sport, last 7 days: <strong>{formatNumber(weekMinutes)} min</strong>
+        <div className="fit-cal-grid" role="grid" aria-label={`${formatMonth(month)} training calendar`}>
+          {WEEKDAYS.map((name) => (
+            <span key={name} className="fit-cal-weekday" role="columnheader">
+              {name}
+            </span>
+          ))}
+          {gridDates.map((date) => {
+            if (date < monthStart || date > monthEnd) return <span key={date} className="fit-cal-day blank" aria-hidden="true" />
+            const info = days.get(date)
+            const trained = Boolean(info?.workouts.length)
+            const future = date > today
+            const label = trained
+              ? `trained: ${info?.kinds.map((kind) => KIND_LETTER[kind]).join(' ')}`
+              : info?.rest
+                ? 'rest day'
+                : future
+                  ? 'upcoming'
+                  : 'not logged'
+            return (
+              <button
+                key={date}
+                type="button"
+                role="gridcell"
+                className={`fit-cal-day${trained ? ' trained' : ''}${info?.rest ? ' rest' : ''}${future ? ' future' : ''}${date === today ? ' today' : ''}${date === selected ? ' selected' : ''}`}
+                aria-label={`${formatWeekdayDate(date)}, ${label}`}
+                aria-pressed={date === selected}
+                onClick={() => pick(date)}
+              >
+                <span className="fit-cal-num">{Number(date.slice(8))}</span>
+                <span className="fit-cal-marks">
+                  {info?.kinds.map((kind) => (
+                    <i key={kind} className={`mark ${kind}`}>
+                      {KIND_LETTER[kind]}
+                    </i>
+                  ))}
+                  {info?.rest ? <Moon size={14} aria-hidden="true" /> : null}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        <ul className="fit-legend" aria-label="Legend">
+          <li>
+            <i className="mark strength">S</i> Strength
+          </li>
+          <li>
+            <i className="mark cardio">E</i> Endurance
+          </li>
+          <li>
+            <i className="mark sport">P</i> Sport
+          </li>
+          <li>
+            <Moon size={14} /> Rest
+          </li>
+        </ul>
+      </section>
+
+      <section className="panel fit-selected">
+        <div className="section-header compact">
+          <div>
+            <p className="eyebrow">{selected === today ? 'Today' : formatShortDate(selected)}</p>
+            <h2>{formatWeekdayDate(selected)}</h2>
+          </div>
+          {selected <= today ? (
+            <button type="button" className="ghost-button" onClick={() => onLogDay(selected)}>
+              <Pencil size={16} />
+              Log this day
+            </button>
+          ) : null}
+        </div>
+        <DayEntries info={selectedInfo} onEdit={onEdit} onDeleted={onDeleted} empty={selected > today ? 'Nothing yet — it’s in the future.' : 'Nothing logged this day.'} />
+        {hasTotals ? (
+          <p className="small-label fit-selected-food">
+            {formatNumber(totals.proteinG)} g protein · {formatNumber(totals.fiberG)} g fiber · {formatNumber(totals.calories)} kcal
           </p>
         ) : null}
+      </section>
 
-        {exercises.length ? (
+      <section className="panel">
+        <div className="section-header compact">
+          <div>
+            <p className="eyebrow">Consistency</p>
+            <h2>Last {WEEKS_SHOWN} weeks</h2>
+          </div>
+          <span className="small-label">Target {profile.weeklySessions}/week</span>
+        </div>
+        <div className="fit-weeks" role="img" aria-label={`Sessions per week, last ${WEEKS_SHOWN} weeks`}>
+          {weeks.map((week) => (
+            <div key={week.start} className={`fit-week-col${week.sessions >= profile.weeklySessions ? ' hit' : ''}${week.start === weekStart(today) ? ' current' : ''}`}>
+              <span className="fit-week-count">{week.sessions}</span>
+              <div className="fit-week-bar">
+                <i style={{ height: `${Math.min(week.sessions, 7) * (100 / 7)}%` }} />
+                <b style={{ bottom: `${Math.min(profile.weeklySessions, 7) * (100 / 7)}%` }} />
+              </div>
+              <small>{week.start.slice(8)}/{week.start.slice(5, 7)}</small>
+              <span className="fit-week-rest" title={`${week.rests} rest days`}>
+                {week.rests ? (
+                  <>
+                    <Moon size={11} />
+                    {week.rests}
+                  </>
+                ) : (
+                  ''
+                )}
+              </span>
+            </div>
+          ))}
+        </div>
+        <p className="small-label">Bars are training days per week (Mon–Sun); the line is your target. Green means target hit.</p>
+      </section>
+
+      {exercises.length ? (
+        <section className="panel">
+          <div className="section-header compact">
+            <div>
+              <p className="eyebrow">Strength</p>
+              <h2>Progress</h2>
+            </div>
+          </div>
           <div className="fit-progress-grid">
             {exercises.map(({ title, history }) => {
               const latest = history[history.length - 1]
@@ -119,43 +249,8 @@ export function JournalTab({ data, person, onEdit }: { data: FitnessData; person
               )
             })}
           </div>
-        ) : null}
-      </section>
-
-      <section className="panel">
-        <div className="section-header compact">
-          <h2>History</h2>
-        </div>
-        {visible.length ? (
-          <>
-            <ul className="fit-history">
-              {visible.slice(0, shown).map((workout) => (
-                <li key={workout.id}>
-                  <button type="button" onClick={() => onEdit(workout)}>
-                    <span className={`type-chip fit-kind ${workout.kind}`}>{workout.kind}</span>
-                    <span className="fit-history-main">
-                      <strong>
-                        {workout.title}
-                        {workout.niggle ? <AlertTriangle size={14} className="fit-niggle" aria-label="Something hurt" /> : null}
-                      </strong>
-                      <small>{describeWorkout(workout)}</small>
-                      {workout.note ? <small className="fit-history-note">{workout.note}</small> : null}
-                    </span>
-                    <time dateTime={workout.date}>{formatShortDate(workout.date)}</time>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            {visible.length > shown ? (
-              <button type="button" className="ghost-button show-more-button" onClick={() => setShown((count) => count + PAGE_SIZE)}>
-                Show more ({visible.length - shown} left)
-              </button>
-            ) : null}
-          </>
-        ) : (
-          <p className="empty-state">Nothing here yet. Log your first workout from the Log tab.</p>
-        )}
-      </section>
+        </section>
+      ) : null}
     </div>
   )
 }

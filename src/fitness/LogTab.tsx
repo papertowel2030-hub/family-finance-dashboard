@@ -1,53 +1,57 @@
 import { useMemo, useState } from 'react'
 import { Check, Dumbbell, Footprints, Minus, Plus, Trash2, Trophy } from 'lucide-react'
-import { addWorkout, deleteWorkout, restoreWorkout, updateWorkout } from '../db/fitnessActions'
+import { addWorkout, deleteWorkout, QUICK_TITLES, restoreWorkout, updateWorkout } from '../db/fitnessActions'
 import { knownTitles, lastSessionSets } from '../lib/fitness'
-import type { OwnerId, Workout, WorkoutKind } from '../types'
+import type { OwnerId, TrainingKind, Workout } from '../types'
 import { todayInputDate } from '../utils/date'
 import { formatNumber, parseNumber, type FitnessData, type OnDeleted } from './shared'
 
-const KINDS: Array<{ id: WorkoutKind; label: string; Icon: typeof Dumbbell }> = [
+export const KINDS: Array<{ id: TrainingKind; label: string; Icon: typeof Dumbbell }> = [
   { id: 'strength', label: 'Strength', Icon: Dumbbell },
-  { id: 'cardio', label: 'Cardio', Icon: Footprints },
+  { id: 'cardio', label: 'Endurance', Icon: Footprints },
   { id: 'sport', label: 'Sport', Icon: Trophy },
 ]
 
-const DEFAULT_TITLES: Record<WorkoutKind, string[]> = {
+const DEFAULT_TITLES: Record<TrainingKind, string[]> = {
   strength: ['Squat', 'Bench press', 'Deadlift', 'Overhead press', 'Row', 'Pull-up'],
   cardio: ['Run', 'Walk', 'Cycle', 'Swim', 'Rowing machine'],
   sport: ['Football', 'Tennis', 'Basketball', 'Padel', 'Yoga'],
 }
 
+const MAX_CHIPS = 8
+
 type SetRow = { reps: string; weight: string }
 
-export function LogTab({ data, person }: { data: FitnessData; person: OwnerId }) {
-  return (
-    <section className="panel fit-log">
-      <div className="section-header compact">
-        <div>
-          <p className="eyebrow">Fast add</p>
-          <h2>Log a workout</h2>
-        </div>
-      </div>
-      <WorkoutForm data={data} person={person} />
-    </section>
-  )
+const stepValue = (value: string, delta: number, min = 0) => {
+  const current = parseNumber(value)
+  const base = current !== undefined && Number.isFinite(current) ? current : 0
+  return String(Math.max(min, Math.round((base + delta) * 10) / 10))
 }
 
+/**
+ * Detail form for one exercise or activity. With `kind`/`date` given (the Log page) both are fixed
+ * by the page, so the form stays short enough to fill in between sets.
+ */
 export function WorkoutForm({
   data,
   person,
   initial,
+  kind: fixedKind,
+  date: fixedDate,
   onDone,
 }: {
   data: FitnessData
   person: OwnerId
   initial?: Workout
+  kind?: TrainingKind
+  date?: string
   onDone?: () => void
 }) {
-  const [kind, setKind] = useState<WorkoutKind>(initial?.kind ?? 'strength')
+  const startKind: TrainingKind = initial && initial.kind !== 'rest' ? initial.kind : (fixedKind ?? 'strength')
+  const [kind, setKind] = useState<TrainingKind>(startKind)
   const [title, setTitle] = useState(initial?.title ?? '')
-  const [date, setDate] = useState(initial?.date ?? todayInputDate())
+  const [pickedDate, setDate] = useState(initial?.date ?? todayInputDate())
+  const date = fixedDate ?? pickedDate
   const [sets, setSets] = useState<SetRow[]>(
     initial?.sets?.length ? initial.sets.map((set) => ({ reps: String(set.reps), weight: String(set.weight) })) : [{ reps: '', weight: '' }],
   )
@@ -61,15 +65,17 @@ export function WorkoutForm({
   const [saving, setSaving] = useState(false)
 
   const suggestions = useMemo(() => {
-    const own = knownTitles(data.workouts, person, kind)
+    // The one-tap placeholder ("Strength", "Endurance") is not an exercise worth suggesting.
+    const own = knownTitles(data.workouts, person, kind).filter((name) => name.toLowerCase() !== QUICK_TITLES[kind].toLowerCase())
     const extras = DEFAULT_TITLES[kind].filter((name) => !own.some((known) => known.toLowerCase() === name.toLowerCase()))
     return [...own, ...extras]
   }, [data.workouts, person, kind])
 
+  const chips = suggestions.slice(0, MAX_CHIPS)
   const lastSets = kind === 'strength' && title.trim() ? lastSessionSets(data.workouts, person, title) : null
   const setsAreBlank = sets.every((set) => !set.reps && !set.weight)
 
-  const changeKind = (next: WorkoutKind) => {
+  const changeKind = (next: TrainingKind) => {
     setKind(next)
     setTitle('')
     setError('')
@@ -137,7 +143,7 @@ export function WorkoutForm({
         }
       }}
     >
-      {initial ? null : (
+      {initial || fixedKind ? null : (
         <div className="segmented-control fit-kinds" role="group" aria-label="Workout type">
           {KINDS.map(({ id, label, Icon }) => (
             <button key={id} type="button" className={kind === id ? 'active' : ''} aria-pressed={kind === id} onClick={() => changeKind(id)}>
@@ -148,11 +154,28 @@ export function WorkoutForm({
         </div>
       )}
 
+      {chips.length ? (
+        <div className="fit-title-chips" role="group" aria-label="Pick from your recent">
+          {chips.map((name) => (
+            <button
+              key={name}
+              type="button"
+              className={`fit-chip pick${title.trim().toLowerCase() === name.toLowerCase() ? ' on' : ''}`}
+              onClick={() => {
+                setTitle(name)
+                setSaved('')
+              }}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       <div className="form-grid fit-form-grid">
         <label>
           {kind === 'strength' ? 'Exercise' : kind === 'cardio' ? 'Activity' : 'Sport'}
           <input
-            list="fit-titles"
             value={title}
             onChange={(event) => {
               setTitle(event.target.value)
@@ -161,16 +184,13 @@ export function WorkoutForm({
             placeholder={kind === 'strength' ? 'e.g. Squat' : kind === 'cardio' ? 'e.g. Run' : 'e.g. Football'}
             autoComplete="off"
           />
-          <datalist id="fit-titles">
-            {suggestions.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
         </label>
-        <label>
-          Date
-          <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
-        </label>
+        {fixedDate ? null : (
+          <label>
+            Date
+            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+          </label>
+        )}
       </div>
 
       {kind === 'strength' ? (
@@ -190,14 +210,30 @@ export function WorkoutForm({
           {sets.map((set, index) => (
             <div className="fit-set-row" key={index}>
               <span className="fit-set-number">{index + 1}</span>
-              <label>
-                Reps
-                <input inputMode="numeric" value={set.reps} onChange={(event) => updateSet(index, { reps: event.target.value })} />
-              </label>
-              <label>
-                Weight kg
-                <input inputMode="decimal" value={set.weight} onChange={(event) => updateSet(index, { weight: event.target.value })} placeholder="0 = bodyweight" />
-              </label>
+              <div className="fit-stepper">
+                <button type="button" aria-label={`Fewer reps, set ${index + 1}`} onClick={() => updateSet(index, { reps: stepValue(set.reps, -1) })}>
+                  <Minus size={16} />
+                </button>
+                <label>
+                  <span>Reps</span>
+                  <input inputMode="numeric" value={set.reps} placeholder="0" onChange={(event) => updateSet(index, { reps: event.target.value })} />
+                </label>
+                <button type="button" aria-label={`More reps, set ${index + 1}`} onClick={() => updateSet(index, { reps: stepValue(set.reps, 1) })}>
+                  <Plus size={16} />
+                </button>
+              </div>
+              <div className="fit-stepper">
+                <button type="button" aria-label={`Lighter, set ${index + 1}`} onClick={() => updateSet(index, { weight: stepValue(set.weight, -2.5) })}>
+                  <Minus size={16} />
+                </button>
+                <label>
+                  <span>kg</span>
+                  <input inputMode="decimal" value={set.weight} onChange={(event) => updateSet(index, { weight: event.target.value })} placeholder="BW" />
+                </label>
+                <button type="button" aria-label={`Heavier, set ${index + 1}`} onClick={() => updateSet(index, { weight: stepValue(set.weight, 2.5) })}>
+                  <Plus size={16} />
+                </button>
+              </div>
               <button
                 type="button"
                 className="icon-button"
@@ -205,7 +241,7 @@ export function WorkoutForm({
                 disabled={sets.length === 1}
                 onClick={() => setSets((rows) => rows.filter((_, rowIndex) => rowIndex !== index))}
               >
-                <Minus size={16} />
+                <Trash2 size={16} />
               </button>
             </div>
           ))}

@@ -67,3 +67,13 @@ export function monthKeysEndingAt(monthKey: string, count: number) {
 export function formatMonthShort(monthKey: string) {
   return new Intl.DateTimeFormat('en', { timeZone: MSK_TIME_ZONE, month: 'short' }).format(new Date(`${monthKey}-01T12:00:00+03:00`))
 }
+
+/** e.g. "Fri, Oct 23" */
+export function formatWeekdayDate(date: string) {
+  return new Intl.DateTimeFormat('en', {
+    timeZone: MSK_TIME_ZONE,
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(`${date}T12:00:00+03:00`))
+}

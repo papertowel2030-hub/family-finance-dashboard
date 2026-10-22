@@ -1,20 +1,19 @@
 import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import type { Table } from 'dexie'
-import { Activity, BookOpen, Dumbbell, Target } from 'lucide-react'
+import { BookOpen, Dumbbell, Target } from 'lucide-react'
 import { db } from '../db/database'
 import type { OwnerId, Workout } from '../types'
 import { todayInputDate } from '../utils/date'
-import { EditWorkoutDialog, LogTab } from './LogTab'
+import { EditWorkoutDialog } from './LogTab'
+import { LogPage } from './LogPage'
 import { GoalsTab } from './GoalsTab'
 import { JournalTab } from './JournalTab'
 import { PersonSwitch, type FitnessData } from './shared'
-import { TodayTab } from './TodayTab'
 
-type FitTab = 'today' | 'log' | 'journal' | 'goals'
+type FitTab = 'log' | 'journal' | 'goals'
 
-const TABS: Array<{ id: FitTab; label: string; Icon: typeof Activity }> = [
-  { id: 'today', label: 'Today', Icon: Activity },
+const TABS: Array<{ id: FitTab; label: string; Icon: typeof Dumbbell }> = [
   { id: 'log', label: 'Log', Icon: Dumbbell },
   { id: 'journal', label: 'Journal', Icon: BookOpen },
   { id: 'goals', label: 'Goals', Icon: Target },
@@ -42,7 +41,8 @@ export function FitnessApp({ realmId }: { realmId?: string }) {
   const goals = useLiveQuery(() => rowsInRealm(db.fitnessGoals, realmId), [realmId], [])
   const profiles = useLiveQuery(() => rowsInRealm(db.fitnessProfiles, realmId), [realmId], [])
 
-  const [tab, setTab] = useState<FitTab>('today')
+  const [tab, setTab] = useState<FitTab>('log')
+  const [logDate, setLogDate] = useState(todayInputDate)
   const [person, setPersonState] = useState<OwnerId>(readPerson)
   const [editing, setEditing] = useState<Workout | null>(null)
   const [undoItems, setUndoItems] = useState<Array<{ id: number; label: string; undo: () => Promise<void>; at: number }>>([])
@@ -75,6 +75,12 @@ export function FitnessApp({ realmId }: { realmId?: string }) {
     profiles: profiles ?? [],
   }
 
+  // Opening Log from the tab bar always starts on today; "Log this day" in the Journal keeps its day.
+  const openTab = (next: FitTab) => {
+    if (next === 'log') setLogDate(data.today)
+    setTab(next)
+  }
+
   const onDeleted = (label: string, undo: () => Promise<void>) =>
     setUndoItems((items) => [...items, { id: Date.now() + Math.random(), label, undo, at: Date.now() }])
 
@@ -87,16 +93,26 @@ export function FitnessApp({ realmId }: { realmId?: string }) {
 
       <nav className="tab-bar" aria-label="Fitness sections">
         {TABS.map(({ id, label, Icon }) => (
-          <button key={id} type="button" className={tab === id ? 'active' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>
+          <button key={id} type="button" className={tab === id ? 'active' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => openTab(id)}>
             <Icon size={22} />
             <span>{label}</span>
           </button>
         ))}
       </nav>
 
-      {tab === 'today' ? <TodayTab data={data} person={person} onLog={() => setTab('log')} onDeleted={onDeleted} /> : null}
-      {tab === 'log' ? <LogTab data={data} person={person} /> : null}
-      {tab === 'journal' ? <JournalTab data={data} person={person} onEdit={setEditing} /> : null}
+      {tab === 'log' ? <LogPage data={data} person={person} date={logDate} onDate={setLogDate} onEdit={setEditing} onDeleted={onDeleted} /> : null}
+      {tab === 'journal' ? (
+        <JournalTab
+          data={data}
+          person={person}
+          onEdit={setEditing}
+          onDeleted={onDeleted}
+          onLogDay={(date) => {
+            setLogDate(date)
+            setTab('log')
+          }}
+        />
+      ) : null}
       {tab === 'goals' ? <GoalsTab data={data} person={person} onDeleted={onDeleted} /> : null}
 
       {editing ? <EditWorkoutDialog workout={editing} data={data} onClose={() => setEditing(null)} onDeleted={onDeleted} /> : null}

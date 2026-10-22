@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Meal, Workout } from '../types'
 import {
   addDays,
+  dayMap,
   dayTotals,
   estimateOneRepMax,
   exerciseHistory,
@@ -10,6 +11,7 @@ import {
   lastSessionSets,
   progressRatio,
   weekDates,
+  weeklyCounts,
   weekStart,
   weekStatus,
   weekStreak,
@@ -182,5 +184,48 @@ describe('progressRatio', () => {
     expect(progressRatio(250, 100)).toBe(1)
     expect(progressRatio(10, 0)).toBe(0)
     expect(progressRatio(0, 100)).toBe(0)
+  })
+})
+
+describe('rest days', () => {
+  const rest = (date: string, extra: Partial<Workout> = {}) => workout(date, { kind: 'rest', title: 'Rest', minutes: undefined, ...extra })
+
+  it('are shown in the week but never count as training or toward the streak', () => {
+    const logs = [workout('2026-10-19'), rest('2026-10-20'), rest('2026-10-21'), workout('2026-10-21', { kind: 'strength', title: 'Squat', minutes: undefined })]
+    const status = weekStatus(logs, 'moon', TODAY)
+    expect(status.sessions).toBe(2)
+    expect(status.rests).toBe(1) // 10-21 has both: training wins
+    expect(status.days.map((day) => day.rest)).toEqual([false, true, false, false, false, false, false])
+    expect(weekStreak([rest('2026-10-19'), rest('2026-10-20'), rest('2026-10-21')], 'moon', TODAY, 1)).toBe(0)
+  })
+
+  it('break a run of training days for the rest nudge', () => {
+    const days = ['2026-10-14', '2026-10-15', '2026-10-16', '2026-10-17', '2026-10-18', '2026-10-19', '2026-10-20', '2026-10-21']
+    const run = days.map((date) => workout(date))
+    expect(getNudges(run, 'moon', TODAY).some((nudge) => nudge.kind === 'rest')).toBe(true)
+    const withRest = run.filter((entry) => entry.date !== '2026-10-18').concat(rest('2026-10-18'))
+    expect(getNudges(withRest, 'moon', TODAY).some((nudge) => nudge.kind === 'rest')).toBe(false)
+  })
+
+  it('stay out of exercise titles, history and progress', () => {
+    const logs = [rest('2026-10-20'), lift('2026-10-19', 'Squat', [[5, 80]])]
+    expect(knownTitles(logs, 'moon', 'strength')).toEqual(['Squat'])
+    expect(exerciseHistory(logs, 'moon', 'Rest')).toEqual([])
+  })
+
+  it('build per-day info with kinds in a fixed order and rest only when nothing else happened', () => {
+    const map = dayMap([workout('2026-10-20'), lift('2026-10-20', 'Squat', [[5, 80]]), rest('2026-10-21'), rest('2026-10-20'), workout('2026-10-22', { ownerId: 'alena' })], 'moon')
+    expect(map.get('2026-10-20')).toMatchObject({ kinds: ['strength', 'cardio'], rest: false })
+    expect(map.get('2026-10-21')).toMatchObject({ kinds: [], rest: true })
+    expect(map.has('2026-10-22')).toBe(false)
+  })
+
+  it('count training and rest days per week, oldest first', () => {
+    const counts = weeklyCounts([workout('2026-10-12'), workout('2026-10-13'), rest('2026-10-14'), workout('2026-10-20')], 'moon', TODAY, 3)
+    expect(counts).toEqual([
+      { start: '2026-10-05', sessions: 0, rests: 0 },
+      { start: '2026-10-12', sessions: 2, rests: 1 },
+      { start: '2026-10-19', sessions: 1, rests: 0 },
+    ])
   })
 })

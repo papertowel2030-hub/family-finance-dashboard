@@ -109,7 +109,9 @@ export interface Filters {
 // Fitness (separate from the finance model — shares only the realm + OwnerId)
 // ---------------------------------------------------------------------------
 
-export type WorkoutKind = 'strength' | 'cardio' | 'sport'
+/** 'rest' is a deliberate recovery day: logged like a session but never counted as training. */
+export type WorkoutKind = 'strength' | 'cardio' | 'sport' | 'rest'
+export type TrainingKind = Exclude<WorkoutKind, 'rest'>
 
 export interface StrengthSet {
   reps: number

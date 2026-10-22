@@ -1,5 +1,5 @@
 import { db } from './database'
-import type { FitnessGoal, FitnessProfile, GoalArea, Meal, OwnerId, StrengthSet, Workout, WorkoutKind } from '../types'
+import type { FitnessGoal, FitnessProfile, GoalArea, Meal, OwnerId, StrengthSet, TrainingKind, Workout } from '../types'
 import { DEFAULT_TARGETS } from '../lib/fitness'
 import { makeId, nowIso } from '../utils/id'
 
@@ -24,7 +24,7 @@ function optionalText(value: string | undefined) {
 export interface WorkoutInput {
   ownerId: OwnerId
   date: string
-  kind: WorkoutKind
+  kind: TrainingKind
   title: string
   sets?: StrengthSet[]
   minutes?: number
@@ -35,20 +35,40 @@ export interface WorkoutInput {
   realmId?: string
 }
 
-function buildWorkoutFields(input: WorkoutInput) {
+/** Title given to a one-tap "I trained" entry. */
+export const QUICK_TITLES: Record<TrainingKind, string> = { strength: 'Strength', cardio: 'Endurance', sport: 'Sport' }
+export const REST_TITLE = 'Rest'
+
+/** A one-tap placeholder with no detail at all: safe to replace when a detailed entry is logged. */
+export function isBareMarker(workout: Workout) {
+  return (
+    workout.kind !== 'rest' &&
+    workout.title === QUICK_TITLES[workout.kind] &&
+    !workout.sets?.length &&
+    !workout.minutes &&
+    !workout.distance &&
+    !workout.effort &&
+    !workout.niggle &&
+    !workout.note
+  )
+}
+
+const isBare = (workout: Workout) => !workout.sets?.length && !workout.minutes
+
+function buildWorkoutFields(input: WorkoutInput, { allowBare = false } = {}) {
   const title = input.title.trim()
   if (!title) throw new Error('Give the exercise or activity a name.')
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new Error('Pick a valid date.')
 
   const sets = input.kind === 'strength' ? (input.sets ?? []).filter((set) => set.reps > 0) : undefined
-  if (input.kind === 'strength' && !sets?.length) throw new Error('Add at least one set with reps.')
+  if (input.kind === 'strength' && !sets?.length && !allowBare) throw new Error('Add at least one set with reps.')
   sets?.forEach((set) => {
     cleanNumber(set.reps, 'Reps', { min: 1, max: 1000 })
     cleanNumber(set.weight, 'Weight', { min: 0, max: 2000 })
   })
 
   const minutes = cleanNumber(input.minutes, 'Minutes', { min: 0, max: 1440 })
-  if (input.kind !== 'strength' && !minutes) throw new Error('Add how many minutes you trained.')
+  if (input.kind !== 'strength' && !minutes && !allowBare) throw new Error('Add how many minutes you trained.')
 
   return {
     ownerId: input.ownerId,
@@ -64,17 +84,85 @@ function buildWorkoutFields(input: WorkoutInput) {
   }
 }
 
+const ymd = /^\d{4}-\d{2}-\d{2}$/
+
+async function workoutsOnDay(ownerId: OwnerId, date: string) {
+  return db.workouts
+    .where('date')
+    .equals(date)
+    .filter((workout) => workout.ownerId === ownerId)
+    .toArray()
+}
+
+/** Adds a detailed entry. Rest on that day gives way to the workout, and a bare one-tap marker of the same kind is folded into it. */
 export async function addWorkout(input: WorkoutInput) {
   const now = nowIso()
   const workout: Workout = { id: makeId('workout'), realmId: input.realmId, ...buildWorkoutFields(input), createdAt: now, updatedAt: now }
-  await db.workouts.add(workout)
+  await db.transaction('rw', db.workouts, async () => {
+    const sameDay = await workoutsOnDay(workout.ownerId, workout.date)
+    const superseded = sameDay.filter((other) => other.kind === 'rest' || (other.kind === workout.kind && isBareMarker(other)))
+    if (superseded.length) await db.workouts.bulkDelete(superseded.map((other) => other.id))
+    await db.workouts.add(workout)
+  })
   return workout
 }
 
 export async function updateWorkout(id: string, input: WorkoutInput) {
   const existing = await db.workouts.get(id)
   if (!existing) throw new Error('That workout no longer exists.')
-  await db.workouts.put({ ...existing, ...buildWorkoutFields(input), updatedAt: nowIso() })
+  // An entry that was a plain "I trained" tick may stay plain; anything with detail must keep it.
+  await db.workouts.put({ ...existing, ...buildWorkoutFields(input, { allowBare: isBare(existing) }), updatedAt: nowIso() })
+}
+
+export interface QuickLogResult {
+  workout: Workout
+  /** Rest entries that were replaced, so Undo can put them back. */
+  removedRest: Workout[]
+}
+
+/** One tap: "I trained today" with no detail (the notebook S / E tick). */
+export async function logQuickSession(input: { ownerId: OwnerId; date: string; kind: TrainingKind; realmId?: string }): Promise<QuickLogResult> {
+  if (!ymd.test(input.date)) throw new Error('Pick a valid date.')
+  const now = nowIso()
+  const workout: Workout = {
+    id: makeId('workout'),
+    realmId: input.realmId,
+    ownerId: input.ownerId,
+    date: input.date,
+    kind: input.kind,
+    title: QUICK_TITLES[input.kind],
+    createdAt: now,
+    updatedAt: now,
+  }
+  let removedRest: Workout[] = []
+  await db.transaction('rw', db.workouts, async () => {
+    removedRest = (await workoutsOnDay(input.ownerId, input.date)).filter((other) => other.kind === 'rest')
+    if (removedRest.length) await db.workouts.bulkDelete(removedRest.map((other) => other.id))
+    await db.workouts.add(workout)
+  })
+  return { workout, removedRest }
+}
+
+/** Logs a deliberate rest day. One per person per day: the id is derived so two phones can't double-log it. */
+export async function logRestDay(input: { ownerId: OwnerId; date: string; realmId?: string }) {
+  if (!ymd.test(input.date)) throw new Error('Pick a valid date.')
+  const sameDay = await workoutsOnDay(input.ownerId, input.date)
+  if (sameDay.some((other) => other.kind !== 'rest')) throw new Error('You already trained that day.')
+  const existing = sameDay.find((other) => other.kind === 'rest')
+  if (existing) return existing
+  const now = nowIso()
+  const rest: Workout = {
+    id: `rest_${input.ownerId}_${input.date}`,
+    realmId: input.realmId,
+    ownerId: input.ownerId,
+    date: input.date,
+    kind: 'rest',
+    title: REST_TITLE,
+    createdAt: now,
+    updatedAt: now,
+  }
+  await db.workouts.put(rest)
+  return rest
 }
 
 export async function deleteWorkout(id: string) {

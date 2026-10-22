@@ -1,5 +1,7 @@
+import { AlertTriangle, Check, Moon, Trash2 } from 'lucide-react'
+import { deleteWorkout, restoreWorkout } from '../db/fitnessActions'
+import type { DayInfo, WeekDay } from '../lib/fitness'
 import type { FitnessGoal, FitnessProfile, Meal, OwnerId, Workout } from '../types'
-import type { WeekDay } from '../lib/fitness'
 
 export const PEOPLE: Array<{ id: OwnerId; name: string }> = [
   { id: 'moon', name: 'Moon' },
@@ -100,15 +102,40 @@ export function Sparkline({ values, label }: { values: number[]; label: string }
 
 const WEEKDAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 
-export function WeekDots({ days, compact = false }: { days: WeekDay[]; compact?: boolean }) {
+export function WeekDots({
+  days,
+  compact = false,
+  selected,
+  onSelect,
+}: {
+  days: WeekDay[]
+  compact?: boolean
+  selected?: string
+  onSelect?: (date: string) => void
+}) {
+  const trained = days.filter((day) => day.trained).length
+  const rested = days.filter((day) => day.rest).length
   return (
-    <div className={`fit-week${compact ? ' compact' : ''}`} role="img" aria-label={`${days.filter((day) => day.trained).length} training days this week`}>
-      {days.map((day, index) => (
-        <span key={day.date} className={`fit-dot${day.trained ? ' on' : ''}${day.isToday ? ' today' : ''}${day.isFuture ? ' future' : ''}`}>
-          <i />
-          <small>{WEEKDAY_LETTERS[index]}</small>
-        </span>
-      ))}
+    <div className={`fit-week${compact ? ' compact' : ''}`} role={onSelect ? 'group' : 'img'} aria-label={`${trained} training days, ${rested} rest days this week`}>
+      {days.map((day, index) => {
+        const className = `fit-dot${day.trained ? ' on' : ''}${day.rest ? ' rest' : ''}${day.isToday ? ' today' : ''}${day.isFuture ? ' future' : ''}${selected === day.date ? ' selected' : ''}`
+        const state = day.trained ? 'trained' : day.rest ? 'rest day' : day.isFuture ? 'upcoming' : 'not logged'
+        const body = (
+          <>
+            <i>{day.trained ? <Check size={compact ? 12 : 18} strokeWidth={3} /> : day.rest ? <Moon size={compact ? 11 : 16} /> : null}</i>
+            <small>{WEEKDAY_LETTERS[index]}</small>
+          </>
+        )
+        return onSelect ? (
+          <button key={day.date} type="button" className={className} aria-pressed={selected === day.date} aria-label={`${day.date}, ${state}`} onClick={() => onSelect(day.date)}>
+            {body}
+          </button>
+        ) : (
+          <span key={day.date} className={className}>
+            {body}
+          </span>
+        )
+      })}
     </div>
   )
 }
@@ -122,5 +149,79 @@ export function PersonSwitch({ person, onChange }: { person: OwnerId; onChange: 
         </button>
       ))}
     </div>
+  )
+}
+
+export function describeWorkout(workout: Workout) {
+  if (workout.kind === 'strength') {
+    const sets = workout.sets ?? []
+    if (!sets.length) return 'Session logged'
+    const grouped = sets.map((set) => `${set.reps}×${set.weight ? formatNumber(set.weight) : 'BW'}`).join(', ')
+    return `${sets.length} set${sets.length === 1 ? '' : 's'} · ${grouped}${sets.some((set) => set.weight) ? ' kg' : ''}`
+  }
+  const parts = [workout.minutes ? `${formatNumber(workout.minutes)} min` : '']
+  if (workout.distance) parts.push(`${formatNumber(workout.distance)} km`)
+  if (workout.effort) parts.push(`effort ${workout.effort}/5`)
+  return parts.filter(Boolean).join(' · ') || 'Session logged'
+}
+
+const KIND_LABEL: Record<Workout['kind'], string> = { strength: 'Strength', cardio: 'Endurance', sport: 'Sport', rest: 'Rest' }
+export const kindLabel = (kind: Workout['kind']) => KIND_LABEL[kind]
+
+/** What happened on one day: every workout (tap to edit) or the rest marker (tap to remove). */
+export function DayEntries({
+  info,
+  onEdit,
+  onDeleted,
+  empty,
+}: {
+  info: DayInfo | undefined
+  onEdit: (workout: Workout) => void
+  onDeleted: OnDeleted
+  empty: string
+}) {
+  if (!info || (!info.workouts.length && !info.restEntries.length)) return <p className="empty-state">{empty}</p>
+  return (
+    <ul className="fit-day-entries">
+      {info.workouts.map((workout) => (
+        <li key={workout.id}>
+          <button type="button" onClick={() => onEdit(workout)}>
+            <span className={`type-chip fit-kind ${workout.kind}`}>{kindLabel(workout.kind)}</span>
+            <span className="fit-history-main">
+              <strong>
+                {workout.title}
+                {workout.niggle ? <AlertTriangle size={14} className="fit-niggle" aria-label="Something hurt" /> : null}
+              </strong>
+              <small>{describeWorkout(workout)}</small>
+              {workout.note ? <small className="fit-history-note">{workout.note}</small> : null}
+            </span>
+          </button>
+        </li>
+      ))}
+      {info.restEntries.map((rest) => (
+        <li key={rest.id} className="rest">
+          <div>
+            <span className="type-chip fit-kind rest">
+              <Moon size={13} /> Rest
+            </span>
+            <span className="fit-history-main">
+              <strong>Rest day</strong>
+              <small>Recovery is part of the plan</small>
+            </span>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Remove rest day"
+              onClick={async () => {
+                await deleteWorkout(rest.id)
+                onDeleted('Removed rest day', () => restoreWorkout(rest))
+              }}
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+        </li>
+      ))}
+    </ul>
   )
 }
