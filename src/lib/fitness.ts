@@ -1,4 +1,4 @@
-import type { Meal, OwnerId, Workout } from '../types'
+import type { Meal, OwnerId, TrainingKind, Workout } from '../types'
 
 /** Pure fitness logic: plain arrays in, plain objects out. Dates are YYYY-MM-DD strings. */
 
@@ -11,6 +11,8 @@ export interface DayTotals {
 export interface WeekDay {
   date: string
   trained: boolean
+  /** A logged rest day (never set on a day that also has a workout). */
+  rest: boolean
   isToday: boolean
   isFuture: boolean
 }
@@ -19,6 +21,8 @@ export interface WeekStatus {
   days: WeekDay[]
   /** Distinct days with a workout this week. */
   sessions: number
+  /** Logged rest days this week. */
+  rests: number
 }
 
 export interface ExercisePoint {
@@ -73,19 +77,83 @@ export function dayTotals(meals: Meal[], ownerId: OwnerId, date: string): DayTot
     )
 }
 
+export const isRest = (workout: Workout) => workout.kind === 'rest'
+
+/** Days with at least one real workout. Rest days are deliberately not training days. */
 export function trainingDays(workouts: Workout[], ownerId: OwnerId) {
-  return new Set(workouts.filter((workout) => workout.ownerId === ownerId).map((workout) => workout.date))
+  return new Set(workouts.filter((workout) => workout.ownerId === ownerId && !isRest(workout)).map((workout) => workout.date))
 }
 
-export function weekStatus(workouts: Workout[], ownerId: OwnerId, today: string): WeekStatus {
+export function restDays(workouts: Workout[], ownerId: OwnerId) {
+  return new Set(workouts.filter((workout) => workout.ownerId === ownerId && isRest(workout)).map((workout) => workout.date))
+}
+
+/** The week containing `anchor` (defaults to today); `today` only drives the today/future flags. */
+export function weekStatus(workouts: Workout[], ownerId: OwnerId, today: string, anchor: string = today): WeekStatus {
   const trained = trainingDays(workouts, ownerId)
-  const days = weekDates(today).map((date) => ({
+  const rested = restDays(workouts, ownerId)
+  const days = weekDates(anchor).map((date) => ({
     date,
     trained: trained.has(date),
+    rest: !trained.has(date) && rested.has(date),
     isToday: date === today,
     isFuture: date > today,
   }))
-  return { days, sessions: days.filter((day) => day.trained).length }
+  return { days, sessions: days.filter((day) => day.trained).length, rests: days.filter((day) => day.rest).length }
+}
+
+export interface DayInfo {
+  date: string
+  /** Real workouts that day, oldest first. */
+  workouts: Workout[]
+  /** Training kinds present, in a fixed order. */
+  kinds: TrainingKind[]
+  /** Rest logged and nothing else that day. */
+  rest: boolean
+  /** The rest entries themselves (to undo or remove). */
+  restEntries: Workout[]
+}
+
+const KIND_ORDER: TrainingKind[] = ['strength', 'cardio', 'sport']
+
+/** One entry per logged date for a person; unlogged dates are simply absent. */
+export function dayMap(workouts: Workout[], ownerId: OwnerId) {
+  const map = new Map<string, DayInfo>()
+  const mine = workouts.filter((workout) => workout.ownerId === ownerId).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  for (const workout of mine) {
+    const info = map.get(workout.date) ?? { date: workout.date, workouts: [], kinds: [], rest: false, restEntries: [] }
+    if (isRest(workout)) info.restEntries.push(workout)
+    else info.workouts.push(workout)
+    map.set(workout.date, info)
+  }
+  for (const info of map.values()) {
+    info.workouts.sort((a, b) => KIND_ORDER.indexOf(a.kind as TrainingKind) - KIND_ORDER.indexOf(b.kind as TrainingKind))
+    info.kinds = KIND_ORDER.filter((kind) => info.workouts.some((workout) => workout.kind === kind))
+    info.rest = info.workouts.length === 0 && info.restEntries.length > 0
+  }
+  return map
+}
+
+export interface WeekCount {
+  start: string
+  sessions: number
+  rests: number
+}
+
+/** The last `weeks` Monday-based weeks (oldest first, current week last) with training and rest day counts. */
+export function weeklyCounts(workouts: Workout[], ownerId: OwnerId, today: string, weeks: number): WeekCount[] {
+  const trained = trainingDays(workouts, ownerId)
+  const rested = restDays(workouts, ownerId)
+  const thisWeek = weekStart(today)
+  return Array.from({ length: weeks }, (_, index) => {
+    const start = addDays(thisWeek, -7 * (weeks - 1 - index))
+    const dates = weekDates(start)
+    return {
+      start,
+      sessions: dates.filter((date) => trained.has(date)).length,
+      rests: dates.filter((date) => !trained.has(date) && rested.has(date)).length,
+    }
+  })
 }
 
 /**

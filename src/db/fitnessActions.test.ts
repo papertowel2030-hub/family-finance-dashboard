@@ -8,6 +8,9 @@ import {
   addWorkout,
   deleteMeal,
   deleteWorkout,
+  isBareMarker,
+  logQuickSession,
+  logRestDay,
   profileId,
   restoreWorkout,
   saveProfile,
@@ -94,6 +97,60 @@ describe('workouts', () => {
     expect(await db.workouts.count()).toBe(0)
     await restoreWorkout(before)
     expect(await db.workouts.get(saved.id)).toEqual(before)
+  })
+})
+
+describe('rest days and one-tap sessions', () => {
+  const ids = { ownerId: 'moon' as const, date: '2026-10-21', realmId: REALM }
+
+  it('logs one rest day per person per day, never alongside training', async () => {
+    const rest = await logRestDay(ids)
+    expect(rest).toMatchObject({ kind: 'rest', title: 'Rest', id: 'rest_moon_2026-10-21', realmId: REALM })
+    await logRestDay(ids) // a second phone logging the same rest day adds nothing
+    await logRestDay({ ...ids, ownerId: 'alena' })
+    expect(await db.workouts.count()).toBe(2)
+
+    await logQuickSession({ ...ids, date: '2026-10-22', kind: 'strength' })
+    await expect(logRestDay({ ...ids, date: '2026-10-22' })).rejects.toThrow('already trained')
+  })
+
+  it('quick-logs a bare session and lets it replace a rest day, with undo information', async () => {
+    const rest = await logRestDay(ids)
+    const { workout, removedRest } = await logQuickSession({ ...ids, kind: 'cardio' })
+    expect(workout).toMatchObject({ kind: 'cardio', title: 'Endurance', realmId: REALM })
+    expect(workout.sets).toBeUndefined()
+    expect(removedRest).toEqual([rest])
+    expect(await db.workouts.toArray()).toEqual([workout])
+  })
+
+  it('folds a bare marker into a detailed entry of the same kind, and keeps other kinds', async () => {
+    const marker = (await logQuickSession({ ...ids, kind: 'strength' })).workout
+    const other = (await logQuickSession({ ...ids, kind: 'cardio' })).workout
+    expect(isBareMarker(marker)).toBe(true)
+
+    await addWorkout({ ...ids, kind: 'strength', title: 'Squat', sets: [{ reps: 5, weight: 80 }] })
+    const rows = await db.workouts.toArray()
+    expect(rows.map((row) => row.title).sort()).toEqual(['Endurance', 'Squat'])
+    expect(rows.some((row) => row.id === marker.id)).toBe(false)
+    expect(rows.some((row) => row.id === other.id)).toBe(true)
+  })
+
+  it('does not treat a noted or detailed entry as a marker, and lets a bare entry stay bare when edited', async () => {
+    const { workout } = await logQuickSession({ ...ids, kind: 'strength' })
+    expect(isBareMarker({ ...workout, note: 'Full back' })).toBe(false)
+    expect(isBareMarker({ ...workout, sets: [{ reps: 5, weight: 0 }] })).toBe(false)
+
+    await updateWorkout(workout.id, { ...ids, kind: 'strength', title: 'Strength', note: 'Chest + biceps' })
+    expect(await db.workouts.get(workout.id)).toMatchObject({ note: 'Chest + biceps' })
+
+    const detailed = await addWorkout({ ...ids, date: '2026-10-23', kind: 'strength', title: 'Squat', sets: [{ reps: 5, weight: 80 }] })
+    await expect(updateWorkout(detailed.id, { ...ids, date: '2026-10-23', kind: 'strength', title: 'Squat', sets: [] })).rejects.toThrow('at least one set')
+  })
+
+  it('survives a backup round trip', async () => {
+    await logRestDay({ ...ids, realmId: undefined })
+    const backup = parseBackup(JSON.stringify({ app: 'family-finance-dashboard', version: 1, exportedAt: stamp, settings: [], buckets: [], incomeSources: [], categories: [], transactions: [], workouts: await db.workouts.toArray() }))
+    expect(backup.workouts?.[0].kind).toBe('rest')
   })
 })
 
