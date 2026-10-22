@@ -104,3 +104,87 @@ export interface Filters {
   from: string
   to: string
 }
+
+// ---------------------------------------------------------------------------
+// Fitness (separate from the finance model — shares only the realm + OwnerId)
+// ---------------------------------------------------------------------------
+
+export type WorkoutKind = 'strength' | 'cardio' | 'sport'
+
+export interface StrengthSet {
+  reps: number
+  /** Weight in kg; 0 means bodyweight. */
+  weight: number
+}
+
+/** One exercise or activity on one day, for one person. */
+export interface Workout extends SyncRecord {
+  id: string
+  ownerId: OwnerId
+  /** YYYY-MM-DD */
+  date: string
+  kind: WorkoutKind
+  /** Exercise name (strength), cardio type, or sport/activity. */
+  title: string
+  sets?: StrengthSet[]
+  minutes?: number
+  /** Kilometres. */
+  distance?: number
+  /** Perceived effort 1 (easy) to 5 (max). */
+  effort?: number
+  /** True when something hurt — feeds the injury-watch nudge. */
+  niggle?: boolean
+  note?: string
+  createdAt: string
+  updatedAt: string
+}
+
+/**
+ * One diet log entry (e.g. "+25 g protein"). Daily totals are the sum of entries,
+ * never a single overwritten row, so two phones logging at once can't clobber each other.
+ */
+export interface Meal extends SyncRecord {
+  id: string
+  ownerId: OwnerId
+  /** YYYY-MM-DD */
+  date: string
+  proteinG: number
+  fiberG: number
+  calories: number
+  label?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type GoalArea = 'strength' | 'cardio' | 'consistency' | 'health' | 'other'
+
+/** Free-form personal goal. Numeric target/current are optional and drive a progress bar. */
+export interface FitnessGoal extends SyncRecord {
+  id: string
+  ownerId: OwnerId
+  title: string
+  area: GoalArea
+  target?: number
+  current?: number
+  unit?: string
+  /** YYYY-MM-DD */
+  targetDate?: string
+  done?: boolean
+  archived?: boolean
+  note?: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** Daily targets and weekly rhythm for one person. Id is deterministic: `fprof_<ownerId>`. */
+export interface FitnessProfile extends SyncRecord {
+  id: string
+  ownerId: OwnerId
+  proteinTarget: number
+  fiberTarget: number
+  calorieTarget: number
+  /** Training sessions per week the person is aiming for. */
+  weeklySessions: number
+  createdAt: string
+  updatedAt: string
+}
