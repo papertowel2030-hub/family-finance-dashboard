@@ -8,6 +8,8 @@ import {
   ArrowUpFromLine,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   CircleAlert,
   Cloud,
@@ -32,6 +34,7 @@ import {
   ShieldCheck,
   Trash2,
   Wallet,
+  X,
 } from 'lucide-react'
 import type { DXCInputField, DXCUserInteraction } from 'dexie-cloud-addon'
 import { db, getDexieCloudUrl, isCloudConfigured } from './db/database'
@@ -82,6 +85,7 @@ import {
   formatMonthShort,
   formatShortDate,
   monthKeysEndingAt,
+  nextMonthKey,
   previousMonthKey,
   todayInputDate,
 } from './utils/date'
@@ -138,6 +142,15 @@ const COMMON_CURRENCIES = ['RUB', 'USD', 'EUR', 'GBP', 'AED', 'TRY', 'GEL', 'KZT
 // Kept in a module variable so switching tabs and back doesn't lose it, but a fresh load starts neutral.
 type Section = 'finance' | 'fitness'
 const SECTION_KEY = 'familyFinanceSection'
+const INSIGHTS_KEY = 'familyFinanceInsightsOpen'
+
+function readInsightsOpen() {
+  try {
+    return window.localStorage.getItem(INSIGHTS_KEY) === '1'
+  } catch {
+    return false
+  }
+}
 
 function readSection(): Section {
   try {
@@ -310,6 +323,30 @@ function FinanceApp() {
           <h1>{showFinance ? 'Family Finance' : 'Family Fitness'}</h1>
         </div>
         <div className="top-actions">
+          {settings ? (
+            <div className="section-switch" role="group" aria-label="Section">
+              <button
+                type="button"
+                className={showFinance ? 'active' : ''}
+                aria-pressed={showFinance}
+                aria-label="Finance"
+                title="Finance"
+                onClick={() => setSection('finance')}
+              >
+                <Wallet size={18} />
+              </button>
+              <button
+                type="button"
+                className={!showFinance ? 'active' : ''}
+                aria-pressed={!showFinance}
+                aria-label="Fitness"
+                title="Fitness"
+                onClick={() => setSection('fitness')}
+              >
+                <Dumbbell size={18} />
+              </button>
+            </div>
+          ) : null}
           <SyncBadge currentUser={currentUser} syncState={syncState} />
           <AuthButton currentUser={currentUser} />
         </div>
@@ -322,16 +359,6 @@ function FinanceApp() {
       ) : (
         <>
           {invites && invites.length > 0 ? <InvitePanel invites={invites} /> : null}
-          <div className="section-switch" role="group" aria-label="Section">
-            <button type="button" className={showFinance ? 'active' : ''} aria-pressed={showFinance} onClick={() => setSection('finance')}>
-              <Wallet size={18} />
-              Finance
-            </button>
-            <button type="button" className={!showFinance ? 'active' : ''} aria-pressed={!showFinance} onClick={() => setSection('fitness')}>
-              <Dumbbell size={18} />
-              Fitness
-            </button>
-          </div>
           {!showFinance ? (
             <FitnessBoundary onBack={() => setSection('finance')}>
               <FitnessApp realmId={activeRealmId} />
@@ -858,87 +885,99 @@ function Dashboard({
   const monthTotals = useMemo(() => monthFlowTotals(buckets, transactions, monthKey, owners), [buckets, transactions, monthKey, owners])
   const saved = savedPerCurrency(monthTotals.income, monthTotals.spending)
 
-  const scopeNote =
-    viewer === 'all' ? 'business money not counted' : `${ownerNames[viewer]} + shared · business not counted`
+  const allLeft = saved.length > 0 && saved.every((item) => item.amount >= 0)
+  const allOver = saved.length > 0 && saved.every((item) => item.amount < 0)
+  const heroLabel = allLeft ? 'Left over' : allOver ? 'Overspent' : 'Net'
+  const scopeNote = viewer === 'all' ? 'Business money not counted' : `${ownerNames[viewer]} + shared · business not counted`
 
   return (
     <section className="dashboard-wrap">
-      <div className="section-header">
-        <div>
-          <p className="eyebrow">What is left in each bucket</p>
-          <h2>Balances</h2>
+      <div className="home-toolbar">
+        <div className="month-stepper">
+          <button type="button" className="icon-button" aria-label="Previous month" onClick={() => onMonthChange(previousMonthKey(monthKey))}>
+            <ChevronLeft size={18} />
+          </button>
+          <label className="month-picker">
+            <span className="visually-hidden">Month</span>
+            <input type="month" value={monthKey} onChange={(event) => onMonthChange(event.target.value || currentMonthKey())} />
+          </label>
+          <button type="button" className="icon-button" aria-label="Next month" onClick={() => onMonthChange(nextMonthKey(monthKey))}>
+            <ChevronRight size={18} />
+          </button>
         </div>
-        <label className="month-picker">
-          Month
-          <input type="month" value={monthKey} onChange={(event) => onMonthChange(event.target.value || currentMonthKey())} />
-        </label>
-      </div>
-
-      <div className="viewer-switch">
-        <span className="small-label">Viewing as</span>
-        <div className="segmented-control">
+        <div className="segmented-control" role="group" aria-label="Viewing as">
           {VIEWER_OPTIONS.map((option) => (
-            <button key={option.id} type="button" className={viewer === option.id ? 'active' : ''} onClick={() => changeViewer(option.id)}>
+            <button
+              key={option.id}
+              type="button"
+              className={viewer === option.id ? 'active' : ''}
+              aria-pressed={viewer === option.id}
+              onClick={() => changeViewer(option.id)}
+            >
               {option.label}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="month-summary">
-        <span className="summary-item in">
-          <ArrowDownToLine size={16} />
-          Money in: +{formatBuckets(monthTotals.income, '0')}
-        </span>
-        <span className="summary-item out">
-          <ArrowUpFromLine size={16} />
-          Spent: −{formatBuckets(monthTotals.spending, '0')}
-        </span>
-        {saved.length ? (
-          <span className={`summary-item ${saved.some((item) => item.amount < 0) ? 'over' : 'saved'}`}>
+      <div className="month-hero">
+        <div className="hero-main">
+          <span className="hero-label">
             <PiggyBank size={16} />
-            {saved.map((item) => `${item.amount < 0 ? 'Overspent' : 'Left over'}: ${formatMoney(Math.abs(item.amount), item.currency)}`).join(' · ')}
+            {heroLabel} · {formatMonth(monthKey)}
           </span>
-        ) : null}
-        <span className="small-label">
-          {formatMonth(monthKey)} · {scopeNote}
-        </span>
+          {saved.length ? (
+            <strong className={`hero-value ${allOver ? 'over' : ''}`}>
+              {saved
+                .map((item) => (allLeft || allOver ? formatMoney(Math.abs(item.amount), item.currency) : `${item.amount < 0 ? '−' : '+'}${formatMoney(Math.abs(item.amount), item.currency)}`))
+                .join(' · ')}
+            </strong>
+          ) : (
+            <strong className="hero-value quiet">Nothing recorded yet</strong>
+          )}
+        </div>
+        <div className="hero-flows">
+          <span className="summary-item in" title="Money in">
+            <ArrowDownToLine size={16} />
+            +{formatBuckets(monthTotals.income, '0')}
+          </span>
+          <span className="summary-item out" title="Spent">
+            <ArrowUpFromLine size={16} />
+            −{formatBuckets(monthTotals.spending, '0')}
+          </span>
+        </div>
+        <span className="hero-note">{scopeNote}</span>
       </div>
 
       {backupDue && transactions.length ? (
         <div className="reminder-strip">
-          <Download size={18} />
-          <span>No backup file downloaded on this device for {BACKUP_REMIND_DAYS}+ days.</span>
+          <Download size={16} />
+          <span>No backup in {BACKUP_REMIND_DAYS}+ days</span>
           <button type="button" className="primary-button" onClick={onOpenBackup}>
-            Back up now
+            Back up
           </button>
           <button
             type="button"
-            className="ghost-button"
+            className="icon-button"
+            aria-label="Remind me in a week"
+            title="Remind me in a week"
             onClick={() => {
               snoozeBackupReminder(7)
               setBackupDue(false)
             }}
           >
-            Later
+            <X size={16} />
           </button>
         </div>
       ) : null}
 
-      {bucketGroups.map((group) => {
-        const balances = ledger.balances.filter((balance) => balance.bucket.kind === group.kind)
-        if (!balances.length && group.kind !== 'spending') return null
-        return (
-          <BucketGroupView
-            key={group.kind}
-            group={group}
-            balances={balances}
-            viewer={viewer}
-            monthKey={monthKey}
-            onOpenBucket={onOpenBucket}
-          />
-        )
-      })}
+      <div className="bucket-groups">
+        {bucketGroups.map((group) => {
+          const balances = ledger.balances.filter((balance) => balance.bucket.kind === group.kind)
+          if (!balances.length && group.kind !== 'spending') return null
+          return <BucketGroupView key={group.kind} group={group} balances={balances} viewer={viewer} onOpenBucket={onOpenBucket} />
+        })}
+      </div>
 
       {ledger.negativeWarnings.length ? (
         <div className="warning-strip">
@@ -1004,6 +1043,17 @@ function MonthInsights({
     [buckets, transactions, monthKey, owners, currency],
   )
   const [showAllCategories, setShowAllCategories] = useState(false)
+  const [open, setOpenState] = useState(readInsightsOpen)
+  const toggleOpen = () => {
+    setOpenState((value) => {
+      try {
+        window.localStorage.setItem(INSIGHTS_KEY, value ? '0' : '1')
+      } catch {
+        // Remembering this is a convenience only.
+      }
+      return !value
+    })
+  }
   const categoryRows = useMemo(() => {
     const current = spendingByCategory(buckets, transactions, monthKey, owners, currency)
     const previous = spendingByCategory(buckets, transactions, previousMonthKey(monthKey), owners, currency)
@@ -1036,11 +1086,12 @@ function MonthInsights({
   return (
     <section className="panel insights-panel">
       <div className="section-header compact">
-        <div>
-          <p className="eyebrow">Business money not counted</p>
+        <button type="button" className="insights-toggle" aria-expanded={open} onClick={toggleOpen}>
+          <LineChart size={18} />
           <h2>Month insights</h2>
-        </div>
-        {currencies.length > 1 ? (
+          {open ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        </button>
+        {open && currencies.length > 1 ? (
           <div className="segmented-control" aria-label="Currency">
             {currencies.map((item) => (
               <button key={item} type="button" className={item === currency ? 'active' : ''} onClick={() => setPickedCurrency(item)}>
@@ -1051,6 +1102,8 @@ function MonthInsights({
         ) : null}
       </div>
 
+      {open ? (
+        <>
       <div className="insight-block">
         <div className="inline-header">
           <h3>Last {TREND_MONTHS} months</h3>
@@ -1139,6 +1192,8 @@ function MonthInsights({
           </button>
         ) : null}
       </div>
+        </>
+      ) : null}
     </section>
   )
 }
@@ -1155,13 +1210,11 @@ function BucketGroupView({
   group,
   balances,
   viewer,
-  monthKey,
   onOpenBucket,
 }: {
   group: { kind: BucketKind; title: string; hint?: string }
   balances: LedgerSnapshot['balances']
   viewer: ViewerId
-  monthKey: string
   onOpenBucket: (bucketId: string) => void
 }) {
   const [showPartner, setShowPartner] = useState(false)
@@ -1174,55 +1227,57 @@ function BucketGroupView({
   const primary = partner ? ordered.filter((balance) => balance.bucket.ownerId !== partner) : ordered
   const secondary = partner ? ordered.filter((balance) => balance.bucket.ownerId === partner) : []
 
-  const renderCard = (balance: LedgerSnapshot['balances'][number]) => {
+  const renderRow = (balance: LedgerSnapshot['balances'][number]) => {
     const isMine = viewer !== 'all' && balance.bucket.ownerId === viewer
+    const negative = balance.totals.some((total) => total.amount < 0)
+    const hadFlow = [...balance.monthIn, ...balance.monthOut].some((item) => item.amount !== 0)
     return (
-      <article
-        className={`money-card clickable ${groupTones[group.kind]} ${isMine ? 'mine' : ''} ${balance.totals.some((total) => total.amount < 0) ? 'warning' : ''}`}
+      <button
+        type="button"
+        className={`bucket-row ${isMine ? 'mine' : ''} ${negative ? 'warning' : ''}`}
         key={balance.bucket.id}
-        role="button"
-        tabIndex={0}
         title={`Show ${balance.bucket.name} history`}
         onClick={() => onOpenBucket(balance.bucket.id)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            onOpenBucket(balance.bucket.id)
-          }
-        }}
       >
-        <div className="card-label">
-          {balance.bucket.name}
-          <span className="type-chip">{isMine ? 'You' : ownerNames[balance.bucket.ownerId]}</span>
-        </div>
-        <strong>{formatBuckets(balance.totals)}</strong>
-        <p className="month-flow">
-          {formatMonth(monthKey)}: +{formatBuckets(balance.monthIn, '0')} · −{formatBuckets(balance.monthOut, '0')}
-        </p>
-      </article>
+        <span className="bucket-name">
+          <span className="bucket-title">
+            {balance.bucket.name}
+            {!isMine && balance.bucket.name.trim().toLowerCase() === ownerNames[balance.bucket.ownerId].toLowerCase() ? null : (
+              <span className="owner-tag">{isMine ? 'You' : ownerNames[balance.bucket.ownerId]}</span>
+            )}
+          </span>
+          {hadFlow ? (
+            <span className="bucket-flow">
+              +{formatBuckets(balance.monthIn, '0')} · −{formatBuckets(balance.monthOut, '0')}
+            </span>
+          ) : null}
+        </span>
+        <strong className="bucket-balance">{formatBuckets(balance.totals)}</strong>
+      </button>
     )
   }
 
   return (
-    <div className="bucket-group">
+    <section className={`panel bucket-group ${groupTones[group.kind]}`}>
       <div className="bucket-group-header">
         <h3>{group.title}</h3>
         {group.hint ? <span className="small-label">{group.hint}</span> : null}
       </div>
       {primary.length ? (
-        <div className="dashboard">{primary.map(renderCard)}</div>
+        <div className="bucket-list">{primary.map(renderRow)}</div>
       ) : secondary.length ? null : (
         <p className="empty-state">No buckets here yet.</p>
       )}
       {secondary.length && partner ? (
         <div className="partner-block">
           <button type="button" className="ghost-button show-more-button" onClick={() => setShowPartner((value) => !value)}>
-            {showPartner ? 'Hide' : 'Show'} {ownerNames[partner]}’s money ({secondary.length})
+            {showPartner ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            {ownerNames[partner]}’s ({secondary.length})
           </button>
-          {showPartner ? <div className="dashboard muted-group">{secondary.map(renderCard)}</div> : null}
+          {showPartner ? <div className="bucket-list muted-group">{secondary.map(renderRow)}</div> : null}
         </div>
       ) : null}
-    </div>
+    </section>
   )
 }
 
