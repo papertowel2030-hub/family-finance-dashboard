@@ -20,13 +20,14 @@ const MAX_PROGRESS_CARDS = 8
 export function describeWorkout(workout: Workout) {
   if (workout.kind === 'strength') {
     const sets = workout.sets ?? []
+    if (!sets.length) return 'Session logged'
     const grouped = sets.map((set) => `${set.reps}×${set.weight ? formatNumber(set.weight) : 'BW'}`).join(', ')
     return `${sets.length} set${sets.length === 1 ? '' : 's'} · ${grouped}${sets.some((set) => set.weight) ? ' kg' : ''}`
   }
   const parts = [workout.minutes ? `${formatNumber(workout.minutes)} min` : '']
   if (workout.distance) parts.push(`${formatNumber(workout.distance)} km`)
   if (workout.effort) parts.push(`effort ${workout.effort}/5`)
-  return parts.filter(Boolean).join(' · ')
+  return parts.filter(Boolean).join(' · ') || 'Session logged'
 }
 
 export function JournalTab({ data, person, onEdit }: { data: FitnessData; person: OwnerId; onEdit: (workout: Workout) => void }) {
