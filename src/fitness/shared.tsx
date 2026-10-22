@@ -2,6 +2,7 @@ import { AlertTriangle, Check, Moon, Trash2 } from 'lucide-react'
 import { deleteWorkout, restoreWorkout } from '../db/fitnessActions'
 import type { DayInfo, WeekDay } from '../lib/fitness'
 import type { FitnessGoal, FitnessProfile, Meal, OwnerId, Workout } from '../types'
+import { REST_ENTRY_NOTE } from './copy'
 
 export const PEOPLE: Array<{ id: OwnerId; name: string }> = [
   { id: 'moon', name: 'Moon' },
@@ -206,7 +207,7 @@ export function DayEntries({
             </span>
             <span className="fit-history-main">
               <strong>Rest day</strong>
-              <small>Recovery is part of the plan</small>
+              <small>{REST_ENTRY_NOTE}</small>
             </span>
             <button
               type="button"

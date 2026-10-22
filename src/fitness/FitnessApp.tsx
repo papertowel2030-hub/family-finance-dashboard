@@ -85,9 +85,8 @@ export function FitnessApp({ realmId }: { realmId?: string }) {
     setUndoItems((items) => [...items, { id: Date.now() + Math.random(), label, undo, at: Date.now() }])
 
   return (
-    <div className="fitness" data-section="fitness">
+    <div className={`fitness${undoItems.length ? ' has-toast' : ''}`} data-section="fitness">
       <div className="fit-who">
-        <span className="small-label">Logging for</span>
         <PersonSwitch person={person} onChange={setPerson} />
       </div>
 

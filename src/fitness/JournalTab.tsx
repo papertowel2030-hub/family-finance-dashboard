@@ -4,6 +4,8 @@ import { addDays, dayMap, dayTotals, exerciseHistory, weekDates, weekStart, week
 import { profileOrDefault } from '../db/fitnessActions'
 import type { OwnerId, TrainingKind, Workout } from '../types'
 import { endDateForMonth, formatMonth, formatShortDate, formatWeekdayDate, monthKeyFromDate, nextMonthKey, previousMonthKey } from '../utils/date'
+import { quip } from '../utils/quip'
+import { EMPTY_DAY, EMPTY_MONTH, FUTURE_DAY, PROGRESS_HINT } from './copy'
 import { DayEntries, formatNumber, Sparkline, type FitnessData, type OnDeleted } from './shared'
 
 const MAX_PROGRESS_CARDS = 8
@@ -46,7 +48,6 @@ export function JournalTab({
   const monthDates = gridDates.filter((date) => date >= monthStart && date <= monthEnd)
   const trainedCount = monthDates.filter((date) => days.get(date)?.workouts.length).length
   const restCount = monthDates.filter((date) => days.get(date)?.rest).length
-  const missedCount = monthDates.filter((date) => date < today && !days.get(date)).length
 
   const weeks = useMemo(() => weeklyCounts(workouts, person, today, WEEKS_SHOWN), [workouts, person, today])
 
@@ -82,27 +83,12 @@ export function JournalTab({
             <ChevronLeft size={20} />
           </button>
           <div>
-            <p className="eyebrow">Journal</p>
             <h2>{formatMonth(month)}</h2>
+            <p className="small-label">{trainedCount + restCount ? `${trainedCount} trained · ${restCount} rest` : quip(EMPTY_MONTH, month)}</p>
           </div>
           <button type="button" className="icon-button" aria-label="Next month" disabled={month >= monthKeyFromDate(today)} onClick={() => setMonth(nextMonthKey(month))}>
             <ChevronRight size={20} />
           </button>
-        </div>
-
-        <div className="fit-month-stats">
-          <div className="stat trained">
-            <strong>{trainedCount}</strong>
-            <span>trained</span>
-          </div>
-          <div className="stat rest">
-            <strong>{restCount}</strong>
-            <span>rest</span>
-          </div>
-          <div className="stat missed">
-            <strong>{missedCount}</strong>
-            <span>not logged</span>
-          </div>
         </div>
 
         <div className="fit-cal-grid" role="grid" aria-label={`${formatMonth(month)} training calendar`}>
@@ -166,7 +152,7 @@ export function JournalTab({
       <section className="panel fit-selected">
         <div className="section-header compact">
           <div>
-            <p className="eyebrow">{selected === today ? 'Today' : formatShortDate(selected)}</p>
+            {selected === today ? <p className="eyebrow">Today</p> : null}
             <h2>{formatWeekdayDate(selected)}</h2>
           </div>
           {selected <= today ? (
@@ -176,7 +162,7 @@ export function JournalTab({
             </button>
           ) : null}
         </div>
-        <DayEntries info={selectedInfo} onEdit={onEdit} onDeleted={onDeleted} empty={selected > today ? 'Nothing yet — it’s in the future.' : 'Nothing logged this day.'} />
+        <DayEntries info={selectedInfo} onEdit={onEdit} onDeleted={onDeleted} empty={selected > today ? quip(FUTURE_DAY, selected) : quip(EMPTY_DAY, `${selected}${person}`)} />
         {hasTotals ? (
           <p className="small-label fit-selected-food">
             {formatNumber(totals.proteinG)} g protein · {formatNumber(totals.fiberG)} g fiber · {formatNumber(totals.calories)} kcal
@@ -186,10 +172,7 @@ export function JournalTab({
 
       <section className="panel">
         <div className="section-header compact">
-          <div>
-            <p className="eyebrow">Consistency</p>
-            <h2>Last {WEEKS_SHOWN} weeks</h2>
-          </div>
+          <h2>Last {WEEKS_SHOWN} weeks</h2>
           <span className="small-label">Target {profile.weeklySessions}/week</span>
         </div>
         <div className="fit-weeks" role="img" aria-label={`Sessions per week, last ${WEEKS_SHOWN} weeks`}>
@@ -214,16 +197,13 @@ export function JournalTab({
             </div>
           ))}
         </div>
-        <p className="small-label">Bars are training days per week (Mon–Sun); the line is your target. Green means target hit.</p>
       </section>
 
       {exercises.length ? (
         <section className="panel">
           <div className="section-header compact">
-            <div>
-              <p className="eyebrow">Strength</p>
-              <h2>Progress</h2>
-            </div>
+            <h2>Strength progress</h2>
+            {exercises.some(({ history }) => history.length < 2) ? <span className="small-label">{PROGRESS_HINT}</span> : null}
           </div>
           <div className="fit-progress-grid">
             {exercises.map(({ title, history }) => {
@@ -238,7 +218,7 @@ export function JournalTab({
                     Best {latest ? `${formatNumber(latest.bestWeight)} kg × ${latest.bestReps}` : '—'}
                     {latest?.oneRepMax ? ` · est. 1RM ${formatNumber(latest.oneRepMax)} kg` : ''}
                   </p>
-                  <Sparkline values={history.slice(-10).map(metric)} label={`${title} progress`} />
+                  {history.length > 1 ? <Sparkline values={history.slice(-10).map(metric)} label={`${title} progress`} /> : null}
                   {gain ? (
                     <p className={`fit-gain${gain > 0 ? ' up' : ''}`}>
                       <TrendingUp size={14} /> {gain > 0 ? '+' : ''}
