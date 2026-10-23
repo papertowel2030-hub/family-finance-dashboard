@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import { useLiveQuery, useObservable } from 'dexie-react-hooks'
 import type { Table } from 'dexie'
 import { BehaviorSubject } from 'rxjs'
@@ -22,6 +23,7 @@ import {
   LineChart,
   LogIn,
   LogOut,
+  Pencil,
   Plus,
   PiggyBank,
   PlusCircle,
@@ -48,6 +50,9 @@ import {
   deleteCategory,
   deleteSource,
   deleteTransaction,
+  renameBucket,
+  renameCategory,
+  renameSource,
   restoreTransaction,
   saveAdjustment,
   saveExpense,
@@ -65,6 +70,7 @@ import { listDeletedTransactions, RECOVERY_KEEP_DAYS, restoreDeleted, type Recov
 import { requestCloudSync } from './db/sync'
 import { FitnessApp } from './fitness/FitnessApp'
 import { FitnessBoundary } from './fitness/FitnessBoundary'
+import { recentValues, searchTransactions } from './lib/activity'
 import { activeCurrencies, computeLedger, monthFlowTotals, monthTrend, spendingByCategory } from './lib/ledger'
 import type {
   AppSettings,
@@ -90,6 +96,8 @@ import {
   todayInputDate,
 } from './utils/date'
 import { formatBuckets, formatMoney, parseAmount, roundMoney } from './utils/money'
+import { NO_SEARCH_MATCH, SAVED_LINES } from './utils/financeCopy'
+import { quip } from './utils/quip'
 
 const ownerNames: Record<BucketOwner, string> = {
   moon: 'Moon',
@@ -104,6 +112,7 @@ const emptyFilters: Filters = {
   categoryIds: [],
   from: '',
   to: '',
+  query: '',
 }
 
 const transactionLabels: Record<TransactionType, string> = {
@@ -189,6 +198,7 @@ const offlineInteraction$ = new BehaviorSubject<DXCUserInteraction | undefined>(
 type StorageState = 'checking' | 'ready' | 'unavailable'
 
 const UNDO_WINDOW_MS = 12_000
+const SAVED_NOTICE_MS = 7_000
 
 function App() {
   const [storageState, setStorageState] = useState<StorageState>(() => (canSeeIndexedDb() ? 'checking' : 'unavailable'))
@@ -263,6 +273,8 @@ function FinanceApp() {
   // Every delete keeps its own Undo, so deleting several in a row never loses the earlier ones.
   const [recentDeletes, setRecentDeletes] = useState<Array<{ transaction: Transaction; deletedAt: number }>>([])
   const [prefill, setPrefill] = useState<{ transaction: Transaction; key: number } | null>(null)
+  // The "Saved" toast after Fast add: names what was stored and offers Undo for a moment.
+  const [savedNotice, setSavedNotice] = useState<{ transaction: Transaction; key: number } | null>(null)
   const recoveryQueue = useRef<Promise<void>>(Promise.resolve())
 
   useEffect(() => {
@@ -274,6 +286,12 @@ function FinanceApp() {
     )
     return () => window.clearTimeout(timer)
   }, [recentDeletes])
+
+  useEffect(() => {
+    if (!savedNotice) return
+    const timer = window.setTimeout(() => setSavedNotice(null), SAVED_NOTICE_MS)
+    return () => window.clearTimeout(timer)
+  }, [savedNotice])
 
   // Keep this device's recovery log in step with the data. Reads all tables in one
   // transaction so a half-loaded state never makes records look deleted.
@@ -311,7 +329,16 @@ function FinanceApp() {
 
   const ledger = useMemo(() => computeLedger(buckets ?? [], transactions ?? [], monthKey), [buckets, transactions, monthKey])
 
-  const filteredTransactions = useMemo(() => filterTransactions(transactions ?? [], filters), [transactions, filters])
+  const filteredTransactions = useMemo(
+    () =>
+      searchTransactions(filterTransactions(transactions ?? [], filters), filters.query, {
+        buckets: buckets ?? [],
+        sources: sources ?? [],
+        categories: categories ?? [],
+        typeLabels: transactionLabels,
+      }),
+    [transactions, filters, buckets, sources, categories],
+  )
 
   const activeBuckets = useMemo(() => (buckets ?? []).filter((bucket) => !bucket.archived), [buckets])
 
@@ -389,23 +416,20 @@ function FinanceApp() {
               buckets={activeBuckets}
               sources={sources ?? []}
               categories={categories ?? []}
+              transactions={transactions ?? []}
               prefill={prefill}
+              onSaved={(transaction) => setSavedNotice({ transaction, key: Date.now() })}
             />
           ) : null}
 
           {showFinance && tab === 'activity' ? (
             <div className="activity-stack">
-              <FiltersPanel filters={filters} setFilters={setFilters} buckets={buckets ?? []} sources={sources ?? []} categories={categories ?? []} />
-              <History
-                transactions={filteredTransactions}
+              <FiltersPanel
+                filters={filters}
+                setFilters={setFilters}
                 buckets={buckets ?? []}
                 sources={sources ?? []}
                 categories={categories ?? []}
-                onEdit={setEditing}
-                onRepeat={(transaction) => {
-                  setPrefill({ transaction, key: Date.now() })
-                  setTab('add')
-                }}
               />
               <Charts
                 transactions={filteredTransactions}
@@ -414,6 +438,18 @@ function FinanceApp() {
                 categories={categories ?? []}
                 filters={filters}
                 setFilters={setFilters}
+              />
+              <History
+                transactions={filteredTransactions}
+                total={(transactions ?? []).length}
+                buckets={buckets ?? []}
+                sources={sources ?? []}
+                categories={categories ?? []}
+                onEdit={setEditing}
+                onRepeat={(transaction) => {
+                  setPrefill({ transaction, key: Date.now() })
+                  setTab('add')
+                }}
               />
             </div>
           ) : null}
@@ -463,6 +499,25 @@ function FinanceApp() {
               {recentDeletes.length > 3 ? (
                 <span className="undo-more">+{recentDeletes.length - 3} more in Setup → Recently deleted</span>
               ) : null}
+            </div>
+          ) : null}
+          {savedNotice ? (
+            // At the top, so it never covers the Save button when several entries go in a row.
+            <div className="saved-toast" role="status" key={savedNotice.key}>
+              <span>
+                Saved {transactionLabels[savedNotice.transaction.type].toLowerCase()} {signedAmount(savedNotice.transaction)}.{' '}
+                {quip(SAVED_LINES, savedNotice.transaction.id)}
+              </span>
+              <button
+                type="button"
+                onClick={async () => {
+                  const { id } = savedNotice.transaction
+                  setSavedNotice(null)
+                  await deleteTransaction(id)
+                }}
+              >
+                Undo
+              </button>
             </div>
           ) : null}
         </>
@@ -774,8 +829,7 @@ function SetupPanel({
       {!isCloudConfigured ? (
         <div className="setup-actions">
           <p className="quiet-line">
-            Starts with three buckets: Moon, Alena and Family. Set `VITE_DEXIE_CLOUD_URL` to enable shared sync — current mode
-            stores data in this browser.
+            Starts with three buckets: Moon, Alena and Family. Everything stays on this device until shared sync is switched on.
           </p>
           <button type="button" className="primary-button" onClick={() => createLocalFamilySpace()}>
             <Plus size={18} />
@@ -821,7 +875,7 @@ function SetupPanel({
       )}
 
       {invites && invites.length > 0 ? <InvitePanel invites={invites} /> : null}
-      <p className="quiet-line">Dexie Cloud URL: {getDexieCloudUrl() ?? 'not configured'}</p>
+      {import.meta.env.DEV ? <p className="quiet-line">Dexie Cloud URL: {getDexieCloudUrl() ?? 'not configured'}</p> : null}
     </section>
   )
 }
@@ -1283,26 +1337,67 @@ function BucketGroupView({
 
 type RecordMode = 'in' | 'expense' | 'transfer'
 
+// A phone keeps its keyboard shut until you tap a field (and our tab bar hides while one is focused);
+// a mouse-and-keyboard device can start typing the amount straight away.
+const FINE_POINTER =
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: fine)').matches
+
+/** What the Add forms start with, taken from how the family last used them. */
+interface AddDefaults {
+  inBucket: string
+  expenseBucket: string
+  transferFrom: string
+  transferTo: string
+  sourceChips: string[]
+  categoryChips: string[]
+}
+
 function RecordMoney({
   settings,
   buckets,
   sources,
   categories,
+  transactions,
   prefill,
+  onSaved,
 }: {
   settings: AppSettings
   buckets: Bucket[]
   sources: IncomeSource[]
   categories: Category[]
+  /** Newest first. */
+  transactions: Transaction[]
   prefill: { transaction: Transaction; key: number } | null
+  onSaved: (transaction: Transaction) => void
 }) {
-  const [mode, setMode] = useState<RecordMode>('in')
+  // Spending is what gets recorded most often, so it opens first.
+  const [mode, setMode] = useState<RecordMode>('expense')
 
   useEffect(() => {
     if (!prefill) return
     const { type } = prefill.transaction
     setMode(type === 'expense' ? 'expense' : type === 'transfer' ? 'transfer' : 'in')
   }, [prefill])
+
+  const defaults = useMemo<AddDefaults>(() => {
+    const usable = (id?: string) => (id && buckets.some((bucket) => bucket.id === id) ? id : '')
+    const namesOf = (ids: string[], list: Array<{ id: string; name: string; archived?: boolean }>) =>
+      ids.flatMap((id) => {
+        const item = list.find((entry) => entry.id === id)
+        return item && !item.archived ? [item.name] : []
+      })
+    const moneyIn = transactions.filter((item) => item.type === 'income' || item.type === 'funding')
+    const expenses = transactions.filter((item) => item.type === 'expense')
+    const transfers = transactions.filter((item) => item.type === 'transfer')
+    return {
+      inBucket: usable(recentValues(moneyIn, (item) => item.bucketId, 1)[0]),
+      expenseBucket: usable(recentValues(expenses, (item) => item.bucketId, 1)[0]),
+      transferFrom: usable(recentValues(transfers, (item) => item.bucketId, 1)[0]),
+      transferTo: usable(recentValues(transfers, (item) => item.toBucketId, 1)[0]),
+      sourceChips: namesOf(recentValues(transactions.filter((item) => item.type === 'income'), (item) => item.sourceId, 5), sources),
+      categoryChips: namesOf(recentValues(expenses, (item) => item.categoryId, 5), categories),
+    }
+  }, [transactions, buckets, sources, categories])
 
   const repeated = prefill?.transaction
   const moneyInInitial =
@@ -1359,13 +1454,29 @@ function RecordMoney({
         </div>
       </div>
       {mode === 'in' ? (
-        <MoneyInForm key={prefill?.key} settings={settings} buckets={buckets} sources={sources} initial={moneyInInitial} />
+        <MoneyInForm
+          key={prefill?.key}
+          settings={settings}
+          buckets={buckets}
+          sources={sources}
+          initial={moneyInInitial}
+          defaults={defaults}
+          onSaved={onSaved}
+        />
       ) : null}
       {mode === 'expense' ? (
-        <ExpenseForm key={prefill?.key} settings={settings} buckets={buckets} categories={categories} initial={expenseInitial} />
+        <ExpenseForm
+          key={prefill?.key}
+          settings={settings}
+          buckets={buckets}
+          categories={categories}
+          initial={expenseInitial}
+          defaults={defaults}
+          onSaved={onSaved}
+        />
       ) : null}
       {mode === 'transfer' ? (
-        <TransferForm key={prefill?.key} settings={settings} buckets={buckets} initial={transferInitial} />
+        <TransferForm key={prefill?.key} settings={settings} buckets={buckets} initial={transferInitial} defaults={defaults} onSaved={onSaved} />
       ) : null}
     </section>
   )
@@ -1410,19 +1521,26 @@ function MoneyInForm({
   buckets,
   sources,
   initial,
+  defaults,
+  onSaved,
 }: {
   settings: AppSettings
   buckets: Bucket[]
   sources: IncomeSource[]
   initial?: { amount: string; currency: string; bucketId: string; sourceName: string; note: string }
+  defaults: AddDefaults
+  onSaved: (transaction: Transaction) => void
 }) {
   const [date, setDate] = useState(todayInputDate())
   const [amount, setAmount] = useState(initial?.amount ?? '')
   const [currency, setCurrency] = useState(initial?.currency ?? settings.defaultCurrency)
-  const [bucketId, setBucketId] = useState(initial?.bucketId ?? '')
+  const [bucketId, setBucketId] = useState(initial?.bucketId ?? defaults.inBucket)
   const [sourceName, setSourceName] = useState(initial?.sourceName ?? '')
   const [note, setNote] = useState(initial?.note ?? '')
   const [error, setError] = useState('')
+  const amountRef = useRef<HTMLInputElement>(null)
+  // Frozen for this visit, so the chips don't shuffle under your thumb after every save.
+  const [sourceChips] = useState(defaults.sourceChips)
 
   const selectedBucket = buckets.find((bucket) => bucket.id === bucketId)
   const isFunding = selectedBucket?.kind === 'business'
@@ -1437,15 +1555,31 @@ function MoneyInForm({
         if (!bucketId) return setError('Choose which bucket the money goes into.')
         if (!Number.isFinite(parsed) || parsed <= 0) return setError('Enter a positive amount.')
         const input = { date, amount: parsed, currency, bucketId, sourceName, note, realmId: settings.realmId }
-        await (isFunding ? saveFunding(input) : saveIncome(input))
-        setAmount('')
-        setNote('')
+        try {
+          const saved = await (isFunding ? saveFunding(input) : saveIncome(input))
+          setAmount('')
+          setNote('')
+          onSaved(saved)
+          if (FINE_POINTER) amountRef.current?.focus()
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err))
+        }
       }}
     >
-      <AmountCurrencyRow amount={amount} setAmount={setAmount} currency={currency} setCurrency={setCurrency} />
+      <AmountCurrencyRow amount={amount} setAmount={setAmount} currency={currency} setCurrency={setCurrency} inputRef={amountRef} />
       <div className="form-grid">
         <BucketSelect label="Into bucket" buckets={buckets} value={bucketId} onChange={setBucketId} />
-        {!isFunding ? <SuggestField label="Source" listId="income-sources" value={sourceName} onChange={setSourceName} names={sources.filter((source) => !source.archived).map((source) => source.name)} placeholder="e.g. Teaching, Salary" /> : null}
+        {!isFunding ? (
+          <SuggestField
+            label="Source"
+            listId="income-sources"
+            value={sourceName}
+            onChange={setSourceName}
+            names={sources.filter((source) => !source.archived).map((source) => source.name)}
+            placeholder="e.g. Teaching, Salary"
+            chips={sourceChips}
+          />
+        ) : null}
         <label>
           Date
           <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
@@ -1472,19 +1606,26 @@ function ExpenseForm({
   buckets,
   categories,
   initial,
+  defaults,
+  onSaved,
 }: {
   settings: AppSettings
   buckets: Bucket[]
   categories: Category[]
   initial?: { amount: string; currency: string; bucketId: string; categoryName: string; note: string }
+  defaults: AddDefaults
+  onSaved: (transaction: Transaction) => void
 }) {
   const [date, setDate] = useState(todayInputDate())
   const [amount, setAmount] = useState(initial?.amount ?? '')
   const [currency, setCurrency] = useState(initial?.currency ?? settings.defaultCurrency)
-  const [bucketId, setBucketId] = useState(initial?.bucketId ?? '')
+  const [bucketId, setBucketId] = useState(initial?.bucketId ?? defaults.expenseBucket)
   const [categoryName, setCategoryName] = useState(initial?.categoryName ?? '')
   const [note, setNote] = useState(initial?.note ?? '')
   const [error, setError] = useState('')
+  const amountRef = useRef<HTMLInputElement>(null)
+  // Frozen for this visit, so the chips don't shuffle under your thumb after every save.
+  const [categoryChips] = useState(defaults.categoryChips)
 
   return (
     <form
@@ -1495,15 +1636,29 @@ function ExpenseForm({
         const parsed = parseAmount(amount)
         if (!bucketId) return setError('Choose which bucket pays for this.')
         if (!Number.isFinite(parsed) || parsed <= 0) return setError('Enter a positive amount.')
-        await saveExpense({ date, amount: parsed, currency, bucketId, categoryName, note, realmId: settings.realmId })
-        setAmount('')
-        setNote('')
+        try {
+          const saved = await saveExpense({ date, amount: parsed, currency, bucketId, categoryName, note, realmId: settings.realmId })
+          setAmount('')
+          setNote('')
+          onSaved(saved)
+          if (FINE_POINTER) amountRef.current?.focus()
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err))
+        }
       }}
     >
-      <AmountCurrencyRow amount={amount} setAmount={setAmount} currency={currency} setCurrency={setCurrency} />
+      <AmountCurrencyRow amount={amount} setAmount={setAmount} currency={currency} setCurrency={setCurrency} inputRef={amountRef} />
       <div className="form-grid">
         <BucketSelect label="Paid from" buckets={buckets} value={bucketId} onChange={setBucketId} />
-        <SuggestField label="Category" listId="expense-categories" value={categoryName} onChange={setCategoryName} names={categories.filter((category) => !category.archived).map((category) => category.name)} placeholder="e.g. Groceries" />
+        <SuggestField
+          label="Category"
+          listId="expense-categories"
+          value={categoryName}
+          onChange={setCategoryName}
+          names={categories.filter((category) => !category.archived).map((category) => category.name)}
+          placeholder="e.g. Groceries"
+          chips={categoryChips}
+        />
         <label>
           Date
           <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
@@ -1526,18 +1681,23 @@ function TransferForm({
   settings,
   buckets,
   initial,
+  defaults,
+  onSaved,
 }: {
   settings: AppSettings
   buckets: Bucket[]
   initial?: { amount: string; currency: string; fromBucketId: string; toBucketId: string; note: string }
+  defaults: AddDefaults
+  onSaved: (transaction: Transaction) => void
 }) {
   const [date, setDate] = useState(todayInputDate())
   const [amount, setAmount] = useState(initial?.amount ?? '')
   const [currency, setCurrency] = useState(initial?.currency ?? settings.defaultCurrency)
-  const [fromBucketId, setFromBucketId] = useState(initial?.fromBucketId ?? '')
-  const [toBucketId, setToBucketId] = useState(initial?.toBucketId ?? '')
+  const [fromBucketId, setFromBucketId] = useState(initial?.fromBucketId ?? defaults.transferFrom)
+  const [toBucketId, setToBucketId] = useState(initial?.toBucketId ?? defaults.transferTo)
   const [note, setNote] = useState(initial?.note ?? '')
   const [error, setError] = useState('')
+  const amountRef = useRef<HTMLInputElement>(null)
 
   return (
     <form
@@ -1549,12 +1709,18 @@ function TransferForm({
         if (!fromBucketId || !toBucketId) return setError('Choose both buckets.')
         if (fromBucketId === toBucketId) return setError('Choose two different buckets.')
         if (!Number.isFinite(parsed) || parsed <= 0) return setError('Enter a positive amount.')
-        await saveTransfer({ date, amount: parsed, currency, fromBucketId, toBucketId, note, realmId: settings.realmId })
-        setAmount('')
-        setNote('')
+        try {
+          const saved = await saveTransfer({ date, amount: parsed, currency, fromBucketId, toBucketId, note, realmId: settings.realmId })
+          setAmount('')
+          setNote('')
+          onSaved(saved)
+          if (FINE_POINTER) amountRef.current?.focus()
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err))
+        }
       }}
     >
-      <AmountCurrencyRow amount={amount} setAmount={setAmount} currency={currency} setCurrency={setCurrency} />
+      <AmountCurrencyRow amount={amount} setAmount={setAmount} currency={currency} setCurrency={setCurrency} inputRef={amountRef} />
       <div className="form-grid">
         <BucketSelect label="From" buckets={buckets} value={fromBucketId} onChange={setFromBucketId} />
         <BucketSelect label="To" buckets={buckets} value={toBucketId} onChange={setToBucketId} />
@@ -1581,17 +1747,26 @@ function AmountCurrencyRow({
   setAmount,
   currency,
   setCurrency,
+  inputRef,
 }: {
   amount: string
   setAmount: (value: string) => void
   currency: string
   setCurrency: (value: string) => void
+  inputRef?: RefObject<HTMLInputElement | null>
 }) {
   return (
     <div className="amount-row">
       <label className="amount-field">
         Amount
-        <input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0" />
+        <input
+          ref={inputRef}
+          autoFocus={FINE_POINTER}
+          inputMode="decimal"
+          value={amount}
+          onChange={(event) => setAmount(event.target.value)}
+          placeholder="0"
+        />
       </label>
       <label className="currency-field">
         Currency
@@ -1617,6 +1792,7 @@ function SuggestField({
   onChange,
   names,
   placeholder,
+  chips,
 }: {
   label: string
   listId: string
@@ -1624,8 +1800,10 @@ function SuggestField({
   onChange: (value: string) => void
   names: string[]
   placeholder?: string
+  /** Recently used names, offered as one-tap choices under the field. */
+  chips?: string[]
 }) {
-  return (
+  const field = (
     <label>
       {label}
       <input list={listId} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
@@ -1635,6 +1813,22 @@ function SuggestField({
         ))}
       </datalist>
     </label>
+  )
+  if (!chips?.length) return field
+  return (
+    <div className="suggest-field">
+      {field}
+      <div className="choice-chips" role="group" aria-label={`Recent ${label.toLowerCase()} choices`}>
+        {chips.map((name) => {
+          const picked = name.trim().toLowerCase() === value.trim().toLowerCase()
+          return (
+            <button key={name} type="button" className={picked ? 'active' : ''} aria-pressed={picked} onClick={() => onChange(name)}>
+              {name}
+            </button>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
@@ -1657,28 +1851,102 @@ function ManagementPanel({
         <h2>Setup</h2>
         <Settings size={20} />
       </div>
-      <section className="panel">
-        <div className="manager-block">
-          <h3>Currency</h3>
-          <CurrencySettings settings={settings} />
-        </div>
-      </section>
-      <section className="panel">
-        <BucketManager settings={settings} buckets={buckets} ledger={ledger} />
-      </section>
-      <section className="panel">
-        <SourceManager settings={settings} sources={sources} />
-      </section>
-      <section className="panel">
-        <CategoryManager settings={settings} categories={categories} />
-      </section>
-      <section className="panel">
-        <RecoveryPanel settings={settings} buckets={buckets} sources={sources} categories={categories} />
-      </section>
-      <section className="panel">
-        <BackupPanel settings={settings} />
-      </section>
+      <BackupPanel settings={settings} />
+      <BucketManager settings={settings} buckets={buckets} ledger={ledger} />
+      <SourceManager settings={settings} sources={sources} />
+      <CategoryManager settings={settings} categories={categories} />
+      <CurrencySettings settings={settings} />
+      <RecoveryPanel settings={settings} buckets={buckets} sources={sources} categories={categories} />
     </div>
+  )
+}
+
+/** One Setup card that folds away, so a long list never pushes the other cards off the screen. */
+function SetupSection({
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  title: string
+  summary?: string
+  defaultOpen?: boolean
+  children: ReactNode
+}) {
+  return (
+    <details className="panel setup-section" open={defaultOpen}>
+      <summary>
+        <span className="setup-section-title">
+          <h3>{title}</h3>
+          {summary ? <span className="small-label">{summary}</span> : null}
+        </span>
+        <ChevronDown size={20} className="setup-chevron" />
+      </summary>
+      <div className="setup-section-body">{children}</div>
+    </details>
+  )
+}
+
+/** In-app replacement for window.confirm: same look as the other dialogs, Esc or a tap outside cancels. */
+function ConfirmDialog({
+  title,
+  detail,
+  confirmLabel,
+  tone = 'danger',
+  onConfirm,
+  onCancel,
+}: {
+  title: string
+  detail?: string
+  confirmLabel: string
+  tone?: 'danger' | 'primary'
+  onConfirm: () => void | Promise<void>
+  onCancel: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCancel()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onCancel])
+
+  // Portalled so no card's blur or transform can trap the fixed backdrop inside it.
+  return createPortal(
+    <div
+      className="dialog-backdrop"
+      onClick={(event) => {
+        if (event.target === event.currentTarget && !busy) onCancel()
+      }}
+    >
+      <div className="dialog confirm-dialog" role="alertdialog" aria-modal="true" aria-label={title}>
+        <h2>{title}</h2>
+        {detail ? <p className="quiet-line">{detail}</p> : null}
+        <div className="dialog-actions">
+          <button type="button" className="ghost-button" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={tone === 'danger' ? 'danger-button' : 'primary-button'}
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true)
+              try {
+                await onConfirm()
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -1714,139 +1982,173 @@ function RecoveryPanel({
   }
 
   return (
-    <div className="manager-block">
-      <h3>
-        Recently deleted <span className="small-label">({deleted?.length ?? 0})</span>
-      </h3>
-      <p className="small-label">
-        This device keeps a copy of every entry it has seen. Deleted entries, whether deleted here or on the other device, stay here for{' '}
-        {RECOVERY_KEEP_DAYS} days.
-      </p>
-      {deleted?.length ? (
-        <div className="transaction-list">
-          {deleted.slice(0, visibleCount).map((entry) => {
-            const transaction = entry.data as Transaction
-            return (
-              <article className="transaction-row" key={entry.key}>
-                <div className="transaction-main">
-                  <span className={`type-chip ${transaction.type}`}>{transactionLabels[transaction.type]}</span>
-                  <strong>{signedAmount(transaction)}</strong>
-                  <span>{formatShortDate(transaction.date)}</span>
-                </div>
-                <div className="transaction-meta">
-                  <span>{bucketLine(transaction, buckets)}</span>
-                  {transaction.type === 'income' ? <span>{nameForSource(transaction.sourceId, sources)}</span> : null}
-                  {transaction.type === 'expense' ? <span>{nameForCategory(transaction.categoryId, categories)}</span> : null}
-                  {transaction.note ? <span>{transaction.note}</span> : null}
-                  <span>· deleted ~{formatShortDate(isoToMoscowDate(entry.missingSince ?? ''))}</span>
-                </div>
-                <div className="row-actions">
-                  <button type="button" className="ghost-button" onClick={() => restore(entry)} disabled={busyKey === entry.key}>
-                    <RotateCcw size={16} />
-                    Restore
-                  </button>
-                </div>
-              </article>
-            )
-          })}
-          {visibleCount < deleted.length ? (
-            <button type="button" className="ghost-button show-more-button" onClick={() => setVisibleCount((count) => count + RECOVERY_PAGE_SIZE)}>
-              Show {Math.min(RECOVERY_PAGE_SIZE, deleted.length - visibleCount)} more
-            </button>
-          ) : null}
-        </div>
-      ) : (
-        <p className="empty-state">Nothing deleted. Squeaky clean.</p>
-      )}
-      {message ? <p className="small-label">{message}</p> : null}
-    </div>
+    <SetupSection title="Recently deleted" summary={deleted?.length ? `${deleted.length} can be restored` : 'Nothing deleted'}>
+      <div className="manager-block">
+        <p className="small-label">
+          This device keeps a copy of every entry it has seen. Deleted entries, whether deleted here or on the other device, stay here for{' '}
+          {RECOVERY_KEEP_DAYS} days.
+        </p>
+        {deleted?.length ? (
+          <div className="transaction-list">
+            {deleted.slice(0, visibleCount).map((entry) => {
+              const transaction = entry.data as Transaction
+              return (
+                <article className="transaction-row" key={entry.key}>
+                  <div className="transaction-main">
+                    <span className={`type-chip ${transaction.type}`}>{transactionLabels[transaction.type]}</span>
+                    <strong>{signedAmount(transaction)}</strong>
+                    <span>{formatShortDate(transaction.date)}</span>
+                  </div>
+                  <div className="transaction-meta">
+                    <span>{bucketLine(transaction, buckets)}</span>
+                    {transaction.type === 'income' ? <span>{nameForSource(transaction.sourceId, sources)}</span> : null}
+                    {transaction.type === 'expense' ? <span>{nameForCategory(transaction.categoryId, categories)}</span> : null}
+                    {transaction.note ? <span>{transaction.note}</span> : null}
+                    <span>· deleted ~{formatShortDate(isoToMoscowDate(entry.missingSince ?? ''))}</span>
+                  </div>
+                  <div className="row-actions">
+                    <button type="button" className="ghost-button" onClick={() => restore(entry)} disabled={busyKey === entry.key}>
+                      <RotateCcw size={16} />
+                      Restore
+                    </button>
+                  </div>
+                </article>
+              )
+            })}
+            {visibleCount < deleted.length ? (
+              <button type="button" className="ghost-button show-more-button" onClick={() => setVisibleCount((count) => count + RECOVERY_PAGE_SIZE)}>
+                Show {Math.min(RECOVERY_PAGE_SIZE, deleted.length - visibleCount)} more
+              </button>
+            ) : null}
+          </div>
+        ) : (
+          <p className="empty-state">Nothing deleted. Squeaky clean.</p>
+        )}
+        {message ? <p className="small-label">{message}</p> : null}
+      </div>
+    </SetupSection>
   )
 }
 
 function BackupPanel({ settings }: { settings: AppSettings }) {
   const [message, setMessage] = useState('')
   const [lastBackupAt, setLastBackupAt] = useState(readLastBackupAt)
+  const [pendingMerge, setPendingMerge] = useState<{ backup: ReturnType<typeof parseBackup>; summary: string } | null>(null)
   const age = daysSince(lastBackupAt)
+  const due = age === null || age >= BACKUP_REMIND_DAYS
 
   return (
-    <div className="manager-block">
-      <h3>Backup</h3>
-      <p className={`small-label ${age === null || age >= BACKUP_REMIND_DAYS ? 'backup-due' : ''}`}>
-        {lastBackupAt
-          ? `Last downloaded on this device: ${formatShortDate(isoToMoscowDate(lastBackupAt))} (${age === 0 ? 'today' : `${age} day${age === 1 ? '' : 's'} ago`}).`
-          : 'No backup downloaded on this device yet.'}{' '}
-        Keep a file somewhere outside the app (e.g. email it to yourself) about once a month.
-      </p>
-      <div className="row-actions backup-actions">
-        <button
-          type="button"
-          onClick={async () => {
-            setMessage('')
-            const backup = await exportBackup(settings.realmId)
-            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
-            const url = URL.createObjectURL(blob)
-            const link = document.createElement('a')
-            link.href = url
-            link.download = backupFileName()
-            link.click()
-            URL.revokeObjectURL(url)
-            setLastBackupAt(markBackupDownloaded())
-            setMessage(`Saved ${backup.transactions.length} transactions to ${link.download}.`)
-          }}
-        >
-          Download backup
-        </button>
-        <label className="file-button">
-          Merge backup
-          <input
-            type="file"
-            accept="application/json,.json"
-            onChange={async (event) => {
-              const file = event.target.files?.[0]
-              event.target.value = ''
-              if (!file) return
+    <SetupSection
+      title="Backup"
+      defaultOpen
+      summary={age === null ? 'No backup downloaded yet' : age === 0 ? 'Last backup: today' : `Last backup: ${age} day${age === 1 ? '' : 's'} ago`}
+    >
+      <div className="manager-block">
+        <p className={`small-label ${due ? 'backup-due' : ''}`}>
+          {lastBackupAt
+            ? `Last downloaded on this device: ${formatShortDate(isoToMoscowDate(lastBackupAt))} (${age === 0 ? 'today' : `${age} day${age === 1 ? '' : 's'} ago`}).`
+            : 'No backup downloaded on this device yet.'}{' '}
+          Keep a file somewhere outside the app (e.g. email it to yourself) about once a month.
+        </p>
+        <div className="row-actions backup-actions">
+          <button
+            type="button"
+            onClick={async () => {
               setMessage('')
-              try {
-                const backup = parseBackup(await file.text())
-                const summary = `${backup.transactions.length} transactions, ${backup.buckets.length} buckets (saved ${formatShortDate(backup.exportedAt.slice(0, 10))})`
-                if (!window.confirm(`Add records missing from the current family space?\n${summary}\nExisting records will not be changed or deleted.`)) return
-                const result = await mergeBackup(backup, settings.realmId)
-                const totalAdded = Object.values(result.added).reduce((sum, count) => sum + count, 0)
-                setMessage(
-                  `Merged ${totalAdded} missing records (${result.added.transactions} transactions); kept ${result.skippedExisting} existing records unchanged.`,
-                )
-              } catch (error) {
-                setMessage(error instanceof Error ? error.message : String(error))
-              }
+              const backup = await exportBackup(settings.realmId)
+              const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+              const url = URL.createObjectURL(blob)
+              const link = document.createElement('a')
+              link.href = url
+              link.download = backupFileName()
+              link.click()
+              URL.revokeObjectURL(url)
+              setLastBackupAt(markBackupDownloaded())
+              setMessage(`Saved ${backup.transactions.length} transactions to ${link.download}.`)
             }}
-          />
-        </label>
+          >
+            Download backup
+          </button>
+          <label className="file-button">
+            Merge backup
+            <input
+              type="file"
+              accept="application/json,.json"
+              onChange={async (event) => {
+                const file = event.target.files?.[0]
+                event.target.value = ''
+                if (!file) return
+                setMessage('')
+                try {
+                  const backup = parseBackup(await file.text())
+                  const summary = `${backup.transactions.length} transactions, ${backup.buckets.length} buckets (saved ${formatShortDate(backup.exportedAt.slice(0, 10))})`
+                  setPendingMerge({ backup, summary })
+                } catch (error) {
+                  setMessage(error instanceof Error ? error.message : String(error))
+                }
+              }}
+            />
+          </label>
+        </div>
+        {message ? <p className="small-label">{message}</p> : null}
+        <p className="small-label">
+          The backup contains this family space. Merging is additive: it never clears the app and never overwrites an existing ID.
+        </p>
       </div>
-      {message ? <p className="small-label">{message}</p> : null}
-      <p className="small-label">
-        The backup contains this family space. Merging is additive: it never clears the app and never overwrites an existing ID.
-      </p>
-    </div>
+      {pendingMerge ? (
+        <ConfirmDialog
+          title="Add the missing records?"
+          detail={`${pendingMerge.summary}. Existing records will not be changed or deleted.`}
+          confirmLabel="Merge"
+          tone="primary"
+          onCancel={() => setPendingMerge(null)}
+          onConfirm={async () => {
+            const { backup } = pendingMerge
+            setPendingMerge(null)
+            try {
+              const result = await mergeBackup(backup, settings.realmId)
+              const totalAdded = Object.values(result.added).reduce((sum, count) => sum + count, 0)
+              setMessage(
+                `Merged ${totalAdded} missing records (${result.added.transactions} transactions); kept ${result.skippedExisting} existing records unchanged.`,
+              )
+            } catch (error) {
+              setMessage(error instanceof Error ? error.message : String(error))
+            }
+          }}
+        />
+      ) : null}
+    </SetupSection>
   )
 }
 
 function CurrencySettings({ settings }: { settings: AppSettings }) {
   const [currency, setCurrency] = useState(settings.defaultCurrency)
+  const [saved, setSaved] = useState(false)
 
   return (
-    <form
-      className="mini-form"
-      onSubmit={async (event) => {
-        event.preventDefault()
-        await updateDefaultCurrency(settings, currency)
-      }}
-    >
-      <label>
-        Default currency
-        <input value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} />
-      </label>
-      <button type="submit">Save</button>
-    </form>
+    <SetupSection title="Currency" summary={`Default: ${settings.defaultCurrency}`}>
+      <form
+        className="mini-form"
+        onSubmit={async (event) => {
+          event.preventDefault()
+          await updateDefaultCurrency(settings, currency)
+          setSaved(true)
+        }}
+      >
+        <label>
+          Default currency
+          <input
+            value={currency}
+            onChange={(event) => {
+              setCurrency(event.target.value.toUpperCase())
+              setSaved(false)
+            }}
+          />
+        </label>
+        <button type="submit">Save</button>
+        {saved ? <span className="small-label">Saved.</span> : null}
+      </form>
+    </SetupSection>
   )
 }
 
@@ -1854,64 +2156,140 @@ function BucketManager({ settings, buckets, ledger }: { settings: AppSettings; b
   const [name, setName] = useState('')
   const [ownerId, setOwnerId] = useState<BucketOwner>('shared')
   const [kind, setKind] = useState<BucketKind>('spending')
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<Bucket | null>(null)
+  const [message, setMessage] = useState('')
+
+  const archivedCount = buckets.filter((bucket) => bucket.archived).length
 
   return (
-    <div className="manager-block">
-      <h3>Buckets</h3>
-      <form
-        className="mini-form"
-        onSubmit={async (event) => {
-          event.preventDefault()
-          if (!name.trim()) return
-          await addBucket(name, ownerId, kind, settings.realmId)
-          setName('')
-        }}
-      >
-        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Name" />
-        <select value={ownerId} onChange={(event) => setOwnerId(event.target.value as BucketOwner)}>
-          <option value="shared">Shared</option>
-          <option value="moon">Moon</option>
-          <option value="alena">Alena</option>
-        </select>
-        <select value={kind} onChange={(event) => setKind(event.target.value as BucketKind)}>
-          <option value="spending">Spending</option>
-          <option value="business">Business</option>
-          <option value="savings">Savings</option>
-        </select>
-        <button type="submit">Add</button>
-      </form>
-      <ul className="compact-list">
-        {buckets.map((bucket) => (
-          <li key={bucket.id}>
-            <span>
-              {bucket.name} · {ownerNames[bucket.ownerId]} · {bucket.kind}
-              {bucket.archived ? ' · archived' : ''}
-            </span>
-            <span className="row-actions">
-              <strong>{formatBuckets(ledger.balances.find((balance) => balance.bucket.id === bucket.id)?.totals ?? [])}</strong>
-              <button type="button" className="ghost-button" onClick={() => setBucketArchived(bucket.id, !bucket.archived)}>
-                {bucket.archived ? 'Restore' : 'Archive'}
-              </button>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={async () => {
-                  if (!window.confirm(`Delete bucket "${bucket.name}"?`)) return
-                  try {
-                    await deleteBucket(bucket.id)
-                  } catch (error) {
-                    window.alert(error instanceof Error ? error.message : String(error))
-                  }
-                }}
-              >
-                Delete
-              </button>
-            </span>
-          </li>
-        ))}
-      </ul>
-      <FixBalanceForm settings={settings} buckets={buckets.filter((bucket) => !bucket.archived)} ledger={ledger} />
-    </div>
+    <SetupSection title="Buckets" summary={`${buckets.length - archivedCount} active${archivedCount ? `, ${archivedCount} archived` : ''}`}>
+      <div className="manager-block">
+        <form
+          className="mini-form"
+          onSubmit={async (event) => {
+            event.preventDefault()
+            if (!name.trim()) return
+            await addBucket(name, ownerId, kind, settings.realmId)
+            setName('')
+          }}
+        >
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="New bucket name" aria-label="New bucket name" />
+          <select value={ownerId} onChange={(event) => setOwnerId(event.target.value as BucketOwner)} aria-label="Owner">
+            <option value="shared">Shared</option>
+            <option value="moon">Moon</option>
+            <option value="alena">Alena</option>
+          </select>
+          <select value={kind} onChange={(event) => setKind(event.target.value as BucketKind)} aria-label="Kind">
+            <option value="spending">Spending</option>
+            <option value="business">Business</option>
+            <option value="savings">Savings</option>
+          </select>
+          <button type="submit">Add</button>
+        </form>
+        <ul className="compact-list bucket-manage-list">
+          {buckets.map((bucket) => (
+            <BucketRow
+              key={bucket.id}
+              bucket={bucket}
+              totals={ledger.balances.find((balance) => balance.bucket.id === bucket.id)?.totals ?? []}
+              open={openId === bucket.id}
+              onToggle={() => {
+                setMessage('')
+                setOpenId(openId === bucket.id ? null : bucket.id)
+              }}
+              onDelete={() => setPendingDelete(bucket)}
+            />
+          ))}
+        </ul>
+        {message ? <p className="form-error">{message}</p> : null}
+        <FixBalanceForm settings={settings} buckets={buckets.filter((bucket) => !bucket.archived)} ledger={ledger} />
+      </div>
+      {pendingDelete ? (
+        <ConfirmDialog
+          title={`Delete “${pendingDelete.name}”?`}
+          detail="Only an unused bucket can be deleted. If it has any history, archive it instead."
+          confirmLabel="Delete bucket"
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={async () => {
+            const target = pendingDelete
+            setPendingDelete(null)
+            try {
+              await deleteBucket(target.id)
+              setOpenId(null)
+            } catch (error) {
+              setMessage(error instanceof Error ? error.message : String(error))
+            }
+          }}
+        />
+      ) : null}
+    </SetupSection>
+  )
+}
+
+function BucketRow({
+  bucket,
+  totals,
+  open,
+  onToggle,
+  onDelete,
+}: {
+  bucket: Bucket
+  totals: MoneyBucket[]
+  open: boolean
+  onToggle: () => void
+  onDelete: () => void
+}) {
+  const [draft, setDraft] = useState(bucket.name)
+  const [error, setError] = useState('')
+
+  return (
+    <li className={`bucket-manage ${bucket.archived ? 'is-archived' : ''}`}>
+      <button type="button" className="bucket-manage-main" aria-expanded={open} onClick={onToggle}>
+        <span className="bucket-manage-name">
+          <strong>{bucket.name}</strong>
+          <span className="small-label">
+            {ownerNames[bucket.ownerId]} · {bucket.kind}
+            {bucket.archived ? ' · archived' : ''}
+          </span>
+        </span>
+        <span className="bucket-manage-balance">{formatBuckets(totals)}</span>
+        {open ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+      </button>
+      {open ? (
+        <form
+          className="manage-editor"
+          onSubmit={async (event) => {
+            event.preventDefault()
+            setError('')
+            try {
+              await renameBucket(bucket.id, draft)
+            } catch (err) {
+              setError(err instanceof Error ? err.message : String(err))
+            }
+          }}
+        >
+          <label>
+            Rename
+            <input value={draft} onChange={(event) => setDraft(event.target.value)} />
+          </label>
+          <div className="manage-editor-actions">
+            <button type="submit" className="primary-button" disabled={!draft.trim() || draft.trim() === bucket.name}>
+              <Pencil size={16} />
+              Save name
+            </button>
+            <button type="button" className="ghost-button" onClick={() => setBucketArchived(bucket.id, !bucket.archived)}>
+              {bucket.archived ? 'Restore' : 'Archive'}
+            </button>
+            <button type="button" className="ghost-button delete-link" onClick={onDelete}>
+              <Trash2 size={16} />
+              Delete…
+            </button>
+          </div>
+          {error ? <p className="form-error">{error}</p> : null}
+        </form>
+      ) : null}
+    </li>
   )
 }
 
@@ -1968,9 +2346,10 @@ function SourceManager({ settings, sources }: { settings: AppSettings; sources: 
   return (
     <ManagedNameList
       title="Income sources"
-      hint="New sources are also created automatically when you type them on the income form."
+      hint="Tap a name to rename, archive or delete it. New sources are also created automatically when you type them on the income form."
       items={sources}
       onAdd={(name) => addSource(name, settings.realmId)}
+      onRename={(id, name) => renameSource(id, name)}
       onToggle={(id, archived) => setSourceArchived(id, archived)}
       onDelete={(id) => deleteSource(id)}
     />
@@ -1981,9 +2360,10 @@ function CategoryManager({ settings, categories }: { settings: AppSettings; cate
   return (
     <ManagedNameList
       title="Expense categories"
-      hint="New categories are also created automatically when you type them on the expense form."
+      hint="Tap a name to rename, archive or delete it. New categories are also created automatically when you type them on the expense form."
       items={categories}
       onAdd={(name) => addCategory(name, settings.realmId)}
+      onRename={(id, name) => renameCategory(id, name)}
       onToggle={(id, archived) => setCategoryArchived(id, archived)}
       onDelete={(id) => deleteCategory(id)}
     />
@@ -1995,6 +2375,7 @@ function ManagedNameList({
   hint,
   items,
   onAdd,
+  onRename,
   onToggle,
   onDelete,
 }: {
@@ -2002,95 +2383,140 @@ function ManagedNameList({
   hint: string
   items: Array<{ id: string; name: string; archived?: boolean }>
   onAdd: (name: string) => Promise<unknown>
+  onRename: (id: string, name: string) => Promise<unknown>
   onToggle: (id: string, archived: boolean) => Promise<unknown>
   onDelete: (id: string) => Promise<unknown>
 }) {
   const [name, setName] = useState('')
   const [query, setQuery] = useState('')
   const [showArchived, setShowArchived] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  const [editError, setEditError] = useState('')
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null)
 
   const matches = (item: { name: string }) => item.name.toLowerCase().includes(query.trim().toLowerCase())
   const active = items.filter((item) => !item.archived && matches(item))
   const archived = items.filter((item) => item.archived && matches(item))
   const archivedTotal = items.filter((item) => item.archived).length
+  const editing = items.find((item) => item.id === editingId)
 
-  const remove = async (item: { id: string; name: string }) => {
-    if (!window.confirm(`Delete "${item.name}" permanently?`)) return
-    try {
-      await onDelete(item.id)
-    } catch (error) {
-      window.alert(error instanceof Error ? error.message : String(error))
-    }
+  const pick = (item: { id: string; name: string }) => {
+    setEditError('')
+    setDraft(item.name)
+    setEditingId(editingId === item.id ? null : item.id)
   }
 
-  return (
-    <div className="manager-block">
-      <div className="inline-header">
-        <h3>
-          {title} <span className="small-label">({items.length - archivedTotal} active{archivedTotal ? `, ${archivedTotal} archived` : ''})</span>
-        </h3>
+  const pill = (item: { id: string; name: string; archived?: boolean }) => (
+    <span key={item.id} className={`pill-item ${item.archived ? 'is-archived' : ''} ${editingId === item.id ? 'is-editing' : ''}`}>
+      <button type="button" className="pill-name" aria-pressed={editingId === item.id} onClick={() => pick(item)}>
+        {item.name}
+      </button>
+    </span>
+  )
+
+  const editor = editing ? (
+    <form
+      className="manage-editor"
+      onSubmit={async (event) => {
+        event.preventDefault()
+        setEditError('')
+        try {
+          await onRename(editing.id, draft)
+          setEditingId(null)
+        } catch (error) {
+          setEditError(error instanceof Error ? error.message : String(error))
+        }
+      }}
+    >
+      <label>
+        Rename
+        <input value={draft} onChange={(event) => setDraft(event.target.value)} autoFocus />
+      </label>
+      <div className="manage-editor-actions">
+        <button type="submit" className="primary-button" disabled={!draft.trim() || draft.trim() === editing.name}>
+          <Pencil size={16} />
+          Save name
+        </button>
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={async () => {
+            await onToggle(editing.id, !editing.archived)
+            setEditingId(null)
+          }}
+        >
+          {editing.archived ? 'Restore' : 'Archive'}
+        </button>
+        <button type="button" className="ghost-button delete-link" onClick={() => setPendingDelete(editing)}>
+          <Trash2 size={16} />
+          Delete…
+        </button>
+        <button type="button" className="ghost-button" onClick={() => setEditingId(null)}>
+          Close
+        </button>
       </div>
-      <form
-        className="mini-form"
-        onSubmit={async (event) => {
-          event.preventDefault()
-          if (!name.trim()) return
-          await onAdd(name)
-          setName('')
-        }}
-      >
-        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Name" />
-        <button type="submit">Add</button>
-      </form>
-      {items.length > 6 ? (
-        <div className="search-field">
-          <Search size={15} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search ${title.toLowerCase()}…`} />
-        </div>
+      {editError ? <p className="form-error">{editError}</p> : null}
+    </form>
+  ) : null
+
+  return (
+    <SetupSection title={title} summary={`${items.length - archivedTotal} active${archivedTotal ? `, ${archivedTotal} archived` : ''}`}>
+      <div className="manager-block">
+        <form
+          className="mini-form"
+          onSubmit={async (event) => {
+            event.preventDefault()
+            if (!name.trim()) return
+            await onAdd(name)
+            setName('')
+          }}
+        >
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="New name" aria-label={`New ${title.toLowerCase()} name`} />
+          <button type="submit">Add</button>
+        </form>
+        {items.length > 6 ? (
+          <div className="search-field">
+            <Search size={15} />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search ${title.toLowerCase()}…`} />
+          </div>
+        ) : null}
+        {active.length ? (
+          <div className="pill-list">{active.map(pill)}</div>
+        ) : (
+          <p className="empty-state">{query ? 'No matches. Even the search is confused.' : 'Empty. Nothing to see here.'}</p>
+        )}
+        {editing && !editing.archived ? editor : null}
+        {archivedTotal ? (
+          <>
+            <button type="button" className="ghost-button show-more-button" onClick={() => setShowArchived((value) => !value)}>
+              {showArchived ? 'Hide' : 'Show'} archived ({archivedTotal})
+            </button>
+            {showArchived ? archived.length ? <div className="pill-list">{archived.map(pill)}</div> : <p className="empty-state">No matches.</p> : null}
+            {editing?.archived ? editor : null}
+          </>
+        ) : null}
+        <p className="small-label">{hint}</p>
+      </div>
+      {pendingDelete ? (
+        <ConfirmDialog
+          title={`Delete “${pendingDelete.name}”?`}
+          detail="Only an unused name can be deleted. If it has history, archive it instead."
+          confirmLabel="Delete"
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={async () => {
+            const target = pendingDelete
+            setPendingDelete(null)
+            try {
+              await onDelete(target.id)
+              setEditingId(null)
+            } catch (error) {
+              setEditError(error instanceof Error ? error.message : String(error))
+            }
+          }}
+        />
       ) : null}
-      {active.length ? (
-        <div className="pill-list">
-          {active.map((item) => (
-            <span key={item.id} className="pill-item">
-              <button type="button" className="pill-name" title="Tap to archive" onClick={() => onToggle(item.id, true)}>
-                {item.name}
-              </button>
-              <button type="button" className="pill-delete" aria-label={`Delete ${item.name}`} title="Delete" onClick={() => remove(item)}>
-                <Trash2 size={13} />
-              </button>
-            </span>
-          ))}
-        </div>
-      ) : (
-        <p className="empty-state">{query ? 'No matches. Even the search is confused.' : 'Empty. Nothing to see here.'}</p>
-      )}
-      {archivedTotal ? (
-        <>
-          <button type="button" className="ghost-button show-more-button" onClick={() => setShowArchived((value) => !value)}>
-            {showArchived ? 'Hide' : 'Show'} archived ({archivedTotal})
-          </button>
-          {showArchived ? (
-            archived.length ? (
-              <div className="pill-list">
-                {archived.map((item) => (
-                  <span key={item.id} className="pill-item is-archived">
-                    <button type="button" className="pill-name" title="Tap to restore" onClick={() => onToggle(item.id, false)}>
-                      {item.name}
-                    </button>
-                    <button type="button" className="pill-delete" aria-label={`Delete ${item.name}`} title="Delete" onClick={() => remove(item)}>
-                      <Trash2 size={13} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className="empty-state">No matches.</p>
-            )
-          ) : null}
-        </>
-      ) : null}
-      <p className="small-label">{hint}</p>
-    </div>
+    </SetupSection>
   )
 }
 
@@ -2107,17 +2533,50 @@ function FiltersPanel({
   sources: IncomeSource[]
   categories: Category[]
 }) {
-  const [open, setOpen] = useState(() => localStorage.getItem('financeFiltersOpen') === '1')
+  const [open, setOpen] = useState(() => readFlag('financeFiltersOpen', false))
   const activeCount = countActiveFilters(filters)
+  const chips = activeFilterChips(filters, buckets, sources, categories)
   const toggleOpen = () => {
     const next = !open
     setOpen(next)
-    localStorage.setItem('financeFiltersOpen', next ? '1' : '0')
+    writeFlag('financeFiltersOpen', next)
   }
 
   return (
     <section className="panel filters-panel">
-      <button type="button" className="section-header compact history-toggle" onClick={toggleOpen}>
+      <div className="search-field search-main">
+        <Search size={16} />
+        <input
+          type="text"
+          inputMode="search"
+          enterKeyHint="search"
+          aria-label="Search entries"
+          placeholder="Search notes, buckets, amounts…"
+          value={filters.query}
+          onChange={(event) => setFilters({ ...filters, query: event.target.value })}
+        />
+        {filters.query ? (
+          <button type="button" className="icon-button subtle" aria-label="Clear search" onClick={() => setFilters({ ...filters, query: '' })}>
+            <X size={16} />
+          </button>
+        ) : null}
+      </div>
+      {chips.length ? (
+        <div className="filter-chips" role="group" aria-label="Active filters">
+          {chips.map((chip) => (
+            <button key={chip.key} type="button" className="filter-chip" aria-label={`Remove filter ${chip.label}`} onClick={() => setFilters(chip.without)}>
+              {chip.label}
+              <X size={13} />
+            </button>
+          ))}
+          {chips.length > 1 || filters.query ? (
+            <button type="button" className="filter-chip clear-all" onClick={() => setFilters(emptyFilters)}>
+              Clear all
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      <button type="button" className="section-header compact history-toggle filters-toggle" aria-expanded={open} onClick={toggleOpen}>
         <h2>
           Filters {activeCount ? <span className="small-label">({activeCount} active)</span> : null}
         </h2>
@@ -2247,6 +2706,44 @@ function countActiveFilters(filters: Filters) {
   return count
 }
 
+/** One removable chip per active filter, so a filter set from Home (or anywhere) is always visible and one tap to drop. */
+function activeFilterChips(filters: Filters, buckets: Bucket[], sources: IncomeSource[], categories: Category[]) {
+  const chips: Array<{ key: string; label: string; without: Filters }> = []
+  for (const id of filters.bucketIds) {
+    chips.push({ key: `bucket-${id}`, label: nameForBucket(id, buckets), without: { ...filters, bucketIds: filters.bucketIds.filter((item) => item !== id) } })
+  }
+  for (const type of filters.types) {
+    chips.push({ key: `type-${type}`, label: transactionLabels[type], without: { ...filters, types: filters.types.filter((item) => item !== type) } })
+  }
+  for (const id of filters.sourceIds) {
+    chips.push({ key: `source-${id}`, label: nameForSource(id, sources, 'Unknown source'), without: { ...filters, sourceIds: filters.sourceIds.filter((item) => item !== id) } })
+  }
+  for (const id of filters.categoryIds) {
+    chips.push({ key: `category-${id}`, label: nameForCategory(id, categories, 'Unknown category'), without: { ...filters, categoryIds: filters.categoryIds.filter((item) => item !== id) } })
+  }
+  if (filters.from) chips.push({ key: 'from', label: `From ${formatShortDate(filters.from)}`, without: { ...filters, from: '' } })
+  if (filters.to) chips.push({ key: 'to', label: `Until ${formatShortDate(filters.to)}`, without: { ...filters, to: '' } })
+  return chips
+}
+
+/** A remembered open/closed switch. Storage can be blocked, so it only ever fills in a default. */
+function readFlag(key: string, fallback: boolean) {
+  try {
+    const value = window.localStorage.getItem(key)
+    return value === null ? fallback : value === '1'
+  } catch {
+    return fallback
+  }
+}
+
+function writeFlag(key: string, value: boolean) {
+  try {
+    window.localStorage.setItem(key, value ? '1' : '0')
+  } catch {
+    // Remembering it is a convenience only.
+  }
+}
+
 function Charts({
   transactions,
   buckets,
@@ -2262,6 +2759,13 @@ function Charts({
   filters: Filters
   setFilters: (filters: Filters) => void
 }) {
+  // Closed by default: the list is what people come for, and the charts used to sit at the bottom of it.
+  const [open, setOpen] = useState(() => readFlag('financeChartsOpen', false))
+  const toggleOpen = () => {
+    const next = !open
+    setOpen(next)
+    writeFlag('financeChartsOpen', next)
+  }
   const incomes = transactions.filter((transaction) => transaction.type === 'income')
   const expenses = transactions.filter((transaction) => transaction.type === 'expense')
   const incomeRows = sumRows(incomes, (transaction) => transaction.sourceId ?? '', (id) => nameForSource(id || undefined, sources))
@@ -2274,16 +2778,21 @@ function Charts({
 
   return (
     <section className="panel charts-panel">
-      <div className="section-header compact">
-        <div>
-          <h2>Breakdowns</h2>
-          <p className="small-label">Of the entries shown above · tap a row to filter</p>
-        </div>
-        <LineChart size={20} />
-      </div>
-      <ChartBlock title="Income by source" rows={incomeRows} selected={filters.sourceIds} onPick={toggle('sourceIds')} />
-      <ChartBlock title="Spending by category" rows={categoryRows} selected={filters.categoryIds} onPick={toggle('categoryIds')} />
-      <ChartBlock title="Spending by bucket" rows={bucketRows} selected={filters.bucketIds} onPick={toggle('bucketIds')} />
+      <button type="button" className="section-header compact history-toggle" aria-expanded={open} onClick={toggleOpen}>
+        <h2>
+          <LineChart size={18} />
+          Breakdowns
+        </h2>
+        {open ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+      </button>
+      {open ? (
+        <>
+          <p className="small-label">Of the entries listed below · tap a row to filter</p>
+          <ChartBlock title="Income by source" rows={incomeRows} selected={filters.sourceIds} onPick={toggle('sourceIds')} />
+          <ChartBlock title="Spending by category" rows={categoryRows} selected={filters.categoryIds} onPick={toggle('categoryIds')} />
+          <ChartBlock title="Spending by bucket" rows={bucketRows} selected={filters.bucketIds} onPick={toggle('bucketIds')} />
+        </>
+      ) : null}
     </section>
   )
 }
@@ -2385,6 +2894,7 @@ const HISTORY_PAGE_SIZE = 15
 
 function History({
   transactions,
+  total,
   buckets,
   sources,
   categories,
@@ -2392,13 +2902,15 @@ function History({
   onRepeat,
 }: {
   transactions: Transaction[]
+  /** Entries before any filter or search, so the count can read "12 of 481". */
+  total: number
   buckets: Bucket[]
   sources: IncomeSource[]
   categories: Category[]
   onEdit: (transaction: Transaction) => void
   onRepeat: (transaction: Transaction) => void
 }) {
-  const [open, setOpen] = useState(() => localStorage.getItem('financeHistoryOpen') !== '0')
+  const [open, setOpen] = useState(() => readFlag('financeHistoryOpen', true))
   const [visibleCount, setVisibleCount] = useState(HISTORY_PAGE_SIZE)
 
   useEffect(() => {
@@ -2408,14 +2920,14 @@ function History({
   const toggleOpen = () => {
     const next = !open
     setOpen(next)
-    localStorage.setItem('financeHistoryOpen', next ? '1' : '0')
+    writeFlag('financeHistoryOpen', next)
   }
 
   return (
     <section className="history panel">
       <button type="button" className="section-header compact history-toggle" onClick={toggleOpen}>
         <h2>
-          History <span className="small-label">({transactions.length})</span>
+          History <span className="small-label">({transactions.length === total ? total : `${transactions.length} of ${total}`})</span>
         </h2>
         {open ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
       </button>
@@ -2426,7 +2938,13 @@ function History({
             {index === 0 || visible[index - 1].date !== transaction.date ? (
               <h3 className="day-header">{formatDayHeader(transaction.date)}</h3>
             ) : null}
-            <article className="transaction-row">
+            <article
+              className="transaction-row"
+              onClick={(event) => {
+                // Tapping anywhere on the row opens it; the buttons keep their own jobs.
+                if (!(event.target as HTMLElement).closest('button')) onEdit(transaction)
+              }}
+            >
               <div className="transaction-main">
                 <span className={`type-chip ${transaction.type}`}>{transactionLabels[transaction.type]}</span>
                 <strong className={`amount-${amountDirection(transaction)}`}>{signedAmount(transaction)}</strong>
@@ -2469,7 +2987,7 @@ function History({
           ) : null}
         </div>
       ) : open ? (
-        <p className="empty-state">No transactions. The wallet is on holiday.</p>
+        <p className="empty-state">{total ? quip(NO_SEARCH_MATCH, String(total)) : 'No transactions. The wallet is on holiday.'}</p>
       ) : null}
     </section>
   )

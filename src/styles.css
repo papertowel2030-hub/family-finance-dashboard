@@ -695,22 +695,6 @@ h3 {
   text-decoration: line-through;
 }
 
-.pill-list .pill-item .pill-delete {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  color: var(--muted);
-  border-radius: 999px;
-  cursor: pointer;
-}
-
-.pill-list .pill-item .pill-delete:hover {
-  background: rgba(138, 47, 32, 0.14);
-  color: #8a2f20;
-}
-
 .search-field {
   display: flex;
   align-items: center;
@@ -2012,19 +1996,14 @@ label {
     padding: 0 6px;
   }
 
-  /* Setup pills: bigger hit areas, especially the little delete cross. */
+  /* Setup pills: bigger hit areas. */
   .pill-list .pill-item {
     min-height: 40px;
-    padding: 0 4px 0 12px;
+    padding: 0 10px;
   }
 
   .pill-list .pill-item .pill-name {
     padding: 10px 2px;
-  }
-
-  .pill-list .pill-item .pill-delete {
-    width: 32px;
-    height: 32px;
   }
 
   /* Dialogs sit at the bottom like a sheet, within reach of a thumb. */
@@ -2226,4 +2205,287 @@ select:focus {
   .reminder-strip .icon-button {
     min-height: 40px;
   }
+}
+
+/* ---- Finance UX pass: recent-choice chips, search + filter chips, folding Setup cards, in-app confirm ---- */
+
+.suggest-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  align-content: start;
+}
+
+.choice-chips,
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.choice-chips button,
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fffdf9;
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.choice-chips button.active,
+.filter-chip {
+  border-color: rgba(47, 111, 159, 0.35);
+  background: var(--blue-soft);
+}
+
+.filter-chip svg {
+  color: var(--muted);
+}
+
+.filter-chip.clear-all {
+  border-style: dashed;
+  background: transparent;
+  color: var(--muted);
+}
+
+.filter-chips {
+  margin-top: 10px;
+}
+
+.filters-panel .search-main {
+  margin-top: 0;
+}
+
+.filters-panel .filters-toggle {
+  margin: 8px 0 0;
+}
+
+.filters-panel .filters-toggle + .filter-grid {
+  margin-top: 12px;
+}
+
+.history .transaction-row {
+  cursor: pointer;
+}
+
+.history .transaction-row:hover {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.charts-panel .history-toggle h2 {
+  align-items: center;
+}
+
+.charts-panel .history-toggle + .small-label {
+  margin: 10px 0 0;
+}
+
+.setup-section > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.setup-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.setup-section-title {
+  display: grid;
+  gap: 2px;
+}
+
+.setup-section-title h3 {
+  margin: 0;
+}
+
+.setup-chevron {
+  flex: none;
+  color: var(--muted);
+  transition: transform 0.18s ease;
+}
+
+.setup-section[open] .setup-chevron {
+  transform: rotate(180deg);
+}
+
+.setup-section-body {
+  margin-top: 12px;
+}
+
+.compact-list li.bucket-manage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: stretch;
+  gap: 0;
+  padding: 0;
+}
+
+.bucket-manage-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: inherit;
+  text-align: left;
+}
+
+.bucket-manage-name {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bucket-manage-balance {
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.bucket-manage.is-archived .bucket-manage-main {
+  opacity: 0.6;
+}
+
+.manage-editor {
+  display: grid;
+  gap: 10px;
+  margin: 6px 0 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 12px);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.manage-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pill-list .pill-item.is-editing {
+  border-color: rgba(47, 111, 159, 0.45);
+  background: var(--blue-soft);
+  color: var(--ink);
+}
+
+.confirm-dialog {
+  gap: 12px;
+}
+
+.confirm-dialog h2 {
+  font-size: 1.15rem;
+}
+
+.confirm-dialog .quiet-line {
+  margin: 0;
+}
+
+@media (max-width: 900px), (pointer: coarse) {
+  .choice-chips button,
+  .filter-chip {
+    min-height: 40px;
+  }
+
+  .manage-editor-actions button {
+    min-height: 44px;
+  }
+}
+
+/* On a phone the recent choices stay one swipeable row, so Save keeps its place on the first screen. */
+@media (max-width: 620px) {
+  .choice-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin-inline: -2px;
+    padding: 2px;
+    scrollbar-width: none;
+  }
+
+  .choice-chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  .choice-chips button {
+    flex: none;
+  }
+
+  .entry-form {
+    gap: 11px;
+  }
+
+  .fast-add .section-header {
+    margin-bottom: 10px;
+  }
+}
+
+.saved-toast {
+  position: fixed;
+  top: calc(10px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: max-content;
+  max-width: min(92vw, 480px);
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: var(--ink);
+  color: #fffaf2;
+  box-shadow: 0 14px 40px rgba(42, 35, 28, 0.35);
+  font-weight: 700;
+  animation: saved-toast-in 0.22s ease-out;
+}
+
+.saved-toast button {
+  min-height: 0;
+  padding: 6px 14px;
+  border: 1px solid rgba(255, 250, 242, 0.4);
+  border-radius: 8px;
+  background: transparent;
+  color: #ffd9a0;
+  font-weight: 900;
+}
+
+@keyframes saved-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px);
+  }
+}
+
+.charts-panel > .history-toggle,
+.filters-panel > .history-toggle {
+  margin-bottom: 0;
+}
+
+.filters-panel .filters-toggle[aria-expanded='true'] {
+  margin-bottom: 0;
+}
+
+/* Dialogs (edit, confirm) must sit above the floating tab bar, or their buttons end up hidden behind it. */
+.dialog-backdrop {
+  z-index: 70;
+}
+
+/* A field with recent-choice chips is taller than its neighbours; keep the others at the top of the row. */
+.entry-form .form-grid {
+  align-items: start;
 }
