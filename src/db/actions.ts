@@ -1,3 +1,4 @@
+import type { Table } from 'dexie'
 import { db } from './database'
 import type { AppSettings, Bucket, BucketKind, BucketOwner, Transaction, TransactionType } from '../types'
 import { makeId, nowIso } from '../utils/id'
@@ -123,8 +124,11 @@ export async function deleteBucket(bucketId: string) {
   )
 }
 
+/** Renames only the label; every transaction points at the bucket by id, so history and balances stay put. */
 export async function renameBucket(bucketId: string, name: string) {
-  await db.buckets.update(bucketId, { name: name.trim(), updatedAt: nowIso() })
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('A bucket needs a name.')
+  await db.buckets.update(bucketId, { name: trimmed, updatedAt: nowIso() })
 }
 
 export async function addSource(name: string, realmId?: string) {
@@ -132,6 +136,37 @@ export async function addSource(name: string, realmId?: string) {
   const id = makeId('source')
   await db.incomeSources.add({ id, realmId, name: name.trim(), createdAt: now, updatedAt: now })
   return id
+}
+
+/**
+ * Renames a source or category. Names are how the forms match existing ones, so a name already taken
+ * (ignoring case) is refused instead of creating a lookalike. Transactions keep pointing at the same id.
+ */
+async function renameNamed(
+  table: Table<{ id: string; realmId?: string; name: string; updatedAt: string }, string>,
+  noun: string,
+  id: string,
+  name: string,
+) {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error(`A ${noun} needs a name.`)
+  await db.transaction('rw', table, async () => {
+    const row = await table.get(id)
+    if (!row) throw new Error(`This ${noun} no longer exists.`)
+    const clash = (await table.toArray()).find(
+      (other) => other.id !== id && other.realmId === row.realmId && other.name.trim().toLowerCase() === trimmed.toLowerCase(),
+    )
+    if (clash) throw new Error(`There is already a ${noun} called “${clash.name}”. To merge them, switch its entries over to that one first.`)
+    await table.update(id, { name: trimmed, updatedAt: nowIso() })
+  })
+}
+
+export function renameSource(sourceId: string, name: string) {
+  return renameNamed(db.incomeSources, 'source', sourceId, name)
+}
+
+export function renameCategory(categoryId: string, name: string) {
+  return renameNamed(db.categories, 'category', categoryId, name)
 }
 
 export async function setSourceArchived(sourceId: string, archived: boolean) {
@@ -201,12 +236,12 @@ export interface SaveMoneyInInput {
 /** Money into a spending/savings bucket. Counts as income, tagged with its source. */
 export async function saveIncome(input: SaveMoneyInInput) {
   const sourceId = await findOrCreateSource(input.sourceName ?? '', input.realmId)
-  await db.transactions.add(buildTransaction({ ...input, type: 'income', sourceId }))
+  return addTransaction(buildTransaction({ ...input, type: 'income', sourceId }))
 }
 
 /** Money into a business bucket. Earmarked for business expenses — NOT income. */
 export async function saveFunding(input: SaveMoneyInInput) {
-  await db.transactions.add(buildTransaction({ ...input, type: 'funding' }))
+  return addTransaction(buildTransaction({ ...input, type: 'funding' }))
 }
 
 export interface SaveExpenseInput {
@@ -222,7 +257,7 @@ export interface SaveExpenseInput {
 
 export async function saveExpense(input: SaveExpenseInput) {
   const categoryId = await findOrCreateCategory(input.categoryName ?? '', input.realmId)
-  await db.transactions.add(buildTransaction({ ...input, type: 'expense', categoryId }))
+  return addTransaction(buildTransaction({ ...input, type: 'expense', categoryId }))
 }
 
 export interface SaveTransferInput {
@@ -237,7 +272,7 @@ export interface SaveTransferInput {
 
 export async function saveTransfer(input: SaveTransferInput) {
   if (input.fromBucketId === input.toBucketId) throw new Error('Choose two different buckets.')
-  await db.transactions.add(
+  return addTransaction(
     buildTransaction({
       date: input.date,
       amount: input.amount,
@@ -262,7 +297,7 @@ export interface SaveAdjustmentInput {
 }
 
 export async function saveAdjustment(input: SaveAdjustmentInput) {
-  await db.transactions.add(buildTransaction({ ...input, amount: input.delta, type: 'adjustment' }))
+  return addTransaction(buildTransaction({ ...input, amount: input.delta, type: 'adjustment' }))
 }
 
 export interface UpdateTransactionInput {
@@ -313,6 +348,12 @@ export async function updateDefaultCurrency(settings: AppSettings, currency: str
     defaultCurrency: normalizeCurrency(currency),
     updatedAt: nowIso(),
   })
+}
+
+/** Stores a new transaction and hands it back, so the screen can name it and offer Undo. */
+async function addTransaction(transaction: Transaction) {
+  await db.transactions.add(transaction)
+  return transaction
 }
 
 function buildTransaction(input: {

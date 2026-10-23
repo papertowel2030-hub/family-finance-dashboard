@@ -103,6 +103,8 @@ export interface Filters {
   categoryIds: string[]
   from: string
   to: string
+  /** Free-text search over note, bucket, source, category, type, date and amount. Empty means no search. */
+  query: string
 }
 
 // ---------------------------------------------------------------------------
