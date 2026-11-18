@@ -2014,3 +2014,200 @@ select.fit-seg-label {
   font-size: 0.82rem;
   color: var(--muted);
 }
+
+/* ---- Muscles picker + body map (pilot) ------------------------------------------ */
+.fit-muscles-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.fit-muscles-summary .fit-field-label {
+  margin: 0;
+}
+
+.fit-muscles-summary p {
+  flex: 1 1 180px;
+  margin: 0;
+  font-weight: 700;
+}
+
+.fit-muscles-summary p small {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.fit-muscle-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.fit-chip.pick.muscle.primary {
+  background: var(--leaf);
+  border-color: var(--leaf);
+  color: #fffaf2;
+}
+
+.fit-chip.pick.muscle.secondary {
+  background: var(--leaf-soft);
+  border-color: var(--leaf);
+  color: #2f5538;
+}
+
+.fit-inline-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--blue);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.fit-beta {
+  margin-left: 4px;
+  font-size: 0.66rem;
+  vertical-align: middle;
+}
+
+.fit-body-figures {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 420px;
+  margin: 0 auto 8px;
+}
+
+.fit-body-figure {
+  margin: 0;
+  text-align: center;
+}
+
+.fit-body-figure svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 340px;
+}
+
+.fit-body-figure figcaption {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.fit-body-base {
+  fill: #ece4d6;
+}
+
+.fit-muscle {
+  fill: #ddd2c0;
+  stroke: rgba(31, 42, 46, 0.18);
+  stroke-width: 0.6;
+  cursor: pointer;
+  transition: fill 0.2s ease;
+}
+
+.fit-muscle.band-1 {
+  fill: #b9d1b4;
+}
+
+.fit-muscle.band-2 {
+  fill: #7fa883;
+}
+
+.fit-muscle.band-3 {
+  fill: var(--leaf);
+}
+
+.fit-muscle.stale {
+  stroke: var(--amber);
+  stroke-width: 1.2;
+  stroke-dasharray: 2 1.5;
+}
+
+.fit-muscle.picked {
+  stroke: var(--ink);
+  stroke-width: 1.6;
+  stroke-dasharray: none;
+}
+
+g[role='button']:focus-visible .fit-muscle {
+  stroke: var(--ink);
+  stroke-width: 1.6;
+}
+
+g[role='button'] {
+  outline: none;
+}
+
+.fit-body-detail {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.fit-body-detail ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.fit-body-detail li small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.fit-body-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 6px 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.fit-body-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.fit-body-legend i {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: #ddd2c0;
+  border: 1px solid rgba(31, 42, 46, 0.18);
+}
+
+.fit-body-legend i.band-1 {
+  background: #b9d1b4;
+}
+
+.fit-body-legend i.band-2 {
+  background: #7fa883;
+}
+
+.fit-body-legend i.band-3 {
+  background: var(--leaf);
+}
+
+.fit-body-legend i.stale {
+  border: 1.5px dashed var(--amber);
+}
+
+.fit-body-note {
+  margin: 0;
+}

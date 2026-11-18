@@ -14,6 +14,7 @@ import {
   type ProgressRange,
 } from '../lib/fitness'
 import type { OwnerId, TrainingKind, Workout } from '../types'
+import { BodyMapCard } from './BodyMap'
 import { describeWorkout, intensityText, formatNumber, kindLabel, LineChart, type FitnessData } from './shared'
 
 const RANGES: ProgressRange[] = ['1M', '3M', '1Y', 'All']
@@ -225,6 +226,8 @@ export function ProgressTab({ data, person, onEdit }: { data: FitnessData; perso
           </>
         ) : null}
       </section>
+
+      <BodyMapCard workouts={workouts} person={person} today={today} />
     </div>
   )
 }

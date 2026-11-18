@@ -1,5 +1,6 @@
 import { db } from './database'
-import type { FitnessGoal, FitnessProfile, GoalArea, IntervalSegment, Meal, OwnerId, StrengthSet, TrainingKind, Workout } from '../types'
+import type { FitnessGoal, FitnessProfile, GoalArea, IntervalSegment, Meal, MuscleSet, OwnerId, StrengthSet, TrainingKind, Workout } from '../types'
+import { cleanMuscles } from '../lib/muscles'
 import { DEFAULT_TARGETS } from '../lib/fitness'
 import { makeId, nowIso } from '../utils/id'
 
@@ -32,6 +33,7 @@ export interface WorkoutInput {
   effort?: number
   rpe?: number
   segments?: IntervalSegment[]
+  muscles?: MuscleSet
   niggle?: boolean
   note?: string
   realmId?: string
@@ -69,6 +71,7 @@ export function isBareMarker(workout: Workout) {
     !workout.effort &&
     workout.rpe === undefined &&
     !workout.segments?.length &&
+    !workout.muscles &&
     !workout.niggle &&
     !workout.note
   )
@@ -109,6 +112,7 @@ function buildWorkoutFields(input: WorkoutInput, { allowBare = false } = {}) {
     effort: cleanNumber(input.effort, 'Effort', { min: 1, max: 5 }),
     rpe: cleanNumber(input.rpe, 'How hard', { min: 0, max: 10 }),
     segments,
+    muscles: cleanMuscles(input.muscles),
     niggle: input.niggle ? true : undefined,
     note: optionalText(input.note),
   }

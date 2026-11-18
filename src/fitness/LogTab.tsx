@@ -2,7 +2,9 @@ import { useMemo, useState } from 'react'
 import { Check, Dumbbell, Footprints, Minus, Plus, Trash2, Trophy } from 'lucide-react'
 import { addWorkout, deleteWorkout, QUICK_TITLES, restoreWorkout, updateWorkout } from '../db/fitnessActions'
 import { knownTitles, lastIntervalSession, lastSessionSets } from '../lib/fitness'
-import type { OwnerId, TrainingKind, Workout } from '../types'
+import type { MuscleSet, OwnerId, TrainingKind, Workout } from '../types'
+import { muscleResolver } from '../lib/muscles'
+import { MusclePicker } from './BodyMap'
 import { todayInputDate } from '../utils/date'
 import {
   draftFromSegments,
@@ -69,6 +71,7 @@ export function WorkoutForm({
   const [duration, setDuration] = useState(() => durationFromMinutes(initial?.segments?.length ? undefined : initial?.minutes))
   const [distance, setDistance] = useState(initial?.distance && !initial.segments?.length ? String(initial.distance) : '')
   const [rpe, setRpe] = useState<number | undefined>(initial?.rpe)
+  const [muscles, setMuscles] = useState<MuscleSet | undefined>(initial?.muscles)
   const [useIntervals, setUseIntervals] = useState(Boolean(initial?.segments?.length))
   const [intervals, setIntervals] = useState(() => (initial?.segments?.length ? draftFromSegments(initial.segments) : EMPTY_INTERVALS))
   const [niggle, setNiggle] = useState(Boolean(initial?.niggle))
@@ -87,6 +90,10 @@ export function WorkoutForm({
   const chips = suggestions.slice(0, MAX_CHIPS)
   const lastSets = kind === 'strength' && title.trim() ? lastSessionSets(data.workouts, person, title) : null
   const setsAreBlank = sets.every((set) => !set.reps && !set.weight)
+  const resolveMuscles = useMemo(() => muscleResolver(data.workouts), [data.workouts])
+  const guessedMuscles = title.trim()
+    ? resolveMuscles({ id: '', ownerId: person, date: date, kind, title, createdAt: '', updatedAt: '' })
+    : null
   const lastIntervals = kind === 'cardio' && title.trim() ? (lastIntervalSession(data.workouts, person, title, initial?.id)?.segments ?? null) : null
 
   const changeKind = (next: TrainingKind) => {
@@ -137,6 +144,7 @@ export function WorkoutForm({
             // Legacy 1–5 effort is carried through untouched; new ratings use the 0–10 RPE.
             effort: initial?.effort,
             rpe,
+            muscles,
             segments: builtIntervals && 'segments' in builtIntervals ? builtIntervals.segments : undefined,
             niggle,
             note,
@@ -154,6 +162,7 @@ export function WorkoutForm({
             setDistance('')
             setRpe(undefined)
             setIntervals(EMPTY_INTERVALS)
+            setMuscles(undefined)
             setNiggle(false)
             setNote('')
             onDone?.()
@@ -185,6 +194,7 @@ export function WorkoutForm({
               className={`fit-chip pick${title.trim().toLowerCase() === name.toLowerCase() ? ' on' : ''}`}
               onClick={() => {
                 setTitle(name)
+                setMuscles(undefined)
                 setSaved('')
               }}
             >
@@ -201,6 +211,7 @@ export function WorkoutForm({
             value={title}
             onChange={(event) => {
               setTitle(event.target.value)
+              setMuscles(undefined)
               setSaved('')
             }}
             placeholder={kind === 'strength' ? 'e.g. Squat' : kind === 'cardio' ? 'e.g. Run' : 'e.g. Football'}
@@ -298,6 +309,8 @@ export function WorkoutForm({
           ) : null}
         </>
       )}
+
+      {title.trim() ? <MusclePicker value={muscles} fallback={guessedMuscles} onChange={setMuscles} /> : null}
 
       <RpeField value={rpe} onChange={setRpe} legacyEffort={initial?.rpe === undefined ? initial?.effort : undefined} />
 
