@@ -1811,3 +1811,206 @@ select.fit-seg-label {
     font-size: 0.85rem;
   }
 }
+
+/* ---- Progress tab ------------------------------------------------------------- */
+.fit-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--muted);
+}
+
+.fit-search input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+/* A small dot in the kind's colour (same colours as the calendar letters). */
+.fit-chip.pick[class*='kind-']::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: 1px;
+  background: var(--muted);
+}
+
+.fit-chip.pick.kind-strength::before {
+  background: var(--leaf);
+}
+
+.fit-chip.pick.kind-cardio::before {
+  background: var(--blue);
+}
+
+.fit-chip.pick.kind-sport::before {
+  background: var(--amber);
+}
+
+.fit-chip.pick.on::before {
+  background: #fffaf2;
+}
+
+.fit-chip.pick.load {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fit-more {
+  align-self: center;
+}
+
+.fit-progress-view .section-header {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fit-range button {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 0.82rem;
+}
+
+.fit-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.fit-metrics button {
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: 0.84rem;
+}
+
+.fit-progress-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.fit-progress-stats > div {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.fit-progress-stats small {
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.72rem;
+}
+
+.fit-progress-stats strong {
+  font-size: 1.15rem;
+  font-weight: 900;
+}
+
+.fit-progress-stats strong span {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.fit-progress-stats strong.up {
+  color: #2f5538;
+}
+
+.fit-progress-stats strong.down {
+  color: var(--warning);
+}
+
+.fit-chart {
+  max-width: 560px;
+  margin: 0 0 8px;
+}
+
+.fit-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.fit-chart-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.fit-chart-axis {
+  fill: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.fit-chart-line {
+  fill: none;
+  stroke: var(--leaf);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.fit-chart-dot {
+  fill: var(--paper);
+  stroke: var(--leaf);
+  stroke-width: 2;
+}
+
+.fit-chart-dot.record {
+  fill: #e0a526;
+  stroke: #9c6b0c;
+}
+
+.fit-chart-dot.active {
+  fill: var(--ink);
+  stroke: var(--paper);
+}
+
+.fit-chart-hit {
+  fill: transparent;
+  cursor: pointer;
+  outline: none;
+}
+
+.fit-chart-hit:focus-visible {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+
+.fit-chart figcaption {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.fit-chart figcaption strong {
+  color: var(--ink);
+}
+
+.fit-chart-pb {
+  color: #9c6b0c;
+  font-weight: 800;
+}
+
+.fit-progress-date {
+  min-width: 64px;
+  font-weight: 800;
+  font-size: 0.82rem;
+  color: var(--muted);
+}

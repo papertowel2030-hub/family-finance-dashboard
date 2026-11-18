@@ -8,6 +8,12 @@ import {
   dayTotals,
   estimateOneRepMax,
   exerciseHistory,
+  exerciseList,
+  metricsFor,
+  progressSeries,
+  rangeStart,
+  summarizeSeries,
+  weeklyLoadSeries,
   expandPattern,
   formatDuration,
   getNudges,
@@ -336,5 +342,75 @@ describe('intervals', () => {
     ]
     expect(lastIntervalSession(rows, 'moon', 'Treadmill')?.date).toBe('2026-11-08')
     expect(lastIntervalSession(rows, 'moon', 'Treadmill', rows[1].id)?.date).toBe('2026-11-01')
+  })
+})
+
+describe('progress over time', () => {
+  const rows = [
+    lift('2026-09-01', 'Squat', [[5, 60], [5, 70]]),
+    lift('2026-10-01', 'squat', [[3, 80]]),
+    lift('2026-11-01', 'Squat', [[5, 75]], { minutes: 45, rpe: 8 }),
+    lift('2026-11-02', 'Plank', [[1, 0]]),
+    workout('2026-11-03', { title: 'Run', minutes: 30, distance: 5 }),
+    workout('2026-11-10', { title: 'Run', minutes: 25.5, distance: 5, rpe: 6 }),
+    workout('2026-11-10', { title: 'Endurance', minutes: undefined }),
+    workout('2026-11-12', { kind: 'sport', title: 'Football', minutes: 90, rpe: 9 }),
+    workout('2026-11-13', { kind: 'sport', title: 'Football', minutes: 60, effort: 4 }),
+    workout('2026-11-12', { ownerId: 'alena', title: 'Run', minutes: 20, distance: 3 }),
+  ]
+
+  it('lists every exercise per kind, newest first, without one-tap ticks or other people', () => {
+    expect(exerciseList(rows, 'moon', ['Endurance']).map((entry) => [entry.title, entry.kind, entry.sessions])).toEqual([
+      ['Football', 'sport', 2],
+      ['Run', 'cardio', 2],
+      ['Plank', 'strength', 1],
+      ['Squat', 'strength', 3],
+    ])
+  })
+
+  it('charts strength by estimated 1RM, top set and volume, treating spellings as one exercise', () => {
+    expect(progressSeries(rows, 'moon', 'strength', 'Squat', 'oneRepMax')).toEqual([
+      { date: '2026-09-01', value: 81.7 },
+      { date: '2026-10-01', value: 88 },
+      { date: '2026-11-01', value: 87.5 },
+    ])
+    expect(progressSeries(rows, 'moon', 'strength', 'Squat', 'topWeight').map((point) => point.value)).toEqual([70, 80, 75])
+    expect(progressSeries(rows, 'moon', 'strength', 'Squat', 'volume').map((point) => point.value)).toEqual([650, 240, 375])
+    expect(progressSeries(rows, 'moon', 'strength', 'Squat', 'load')).toEqual([{ date: '2026-11-01', value: 360 }])
+    expect(progressSeries(rows, 'moon', 'strength', 'Plank', 'bestReps')).toEqual([{ date: '2026-11-02', value: 1 }])
+  })
+
+  it('charts endurance speed and leaves unmeasurable days out instead of plotting zero', () => {
+    expect(progressSeries(rows, 'moon', 'cardio', 'Run', 'avgSpeed').map((point) => point.value)).toEqual([10, 11.8])
+    expect(progressSeries(rows, 'moon', 'cardio', 'Run', 'load')).toEqual([{ date: '2026-11-10', value: 153 }])
+    expect(progressSeries(rows, 'moon', 'sport', 'Football', 'load')).toEqual([{ date: '2026-11-12', value: 810 }])
+    expect(progressSeries(rows, 'moon', 'sport', 'Football', 'time').map((point) => point.value)).toEqual([90, 60])
+  })
+
+  it('picks metrics that fit what was logged', () => {
+    expect(metricsFor('strength', rows.slice(0, 3))[0]).toBe('oneRepMax')
+    expect(metricsFor('strength', [rows[3]])[0]).toBe('bestReps')
+    expect(metricsFor('cardio', [workout('2026-11-01', { segments: [{ type: 'work', sec: 30, speed: 14 }] })])[0]).toBe('workSpeed')
+    expect(metricsFor('sport')[0]).toBe('load')
+  })
+
+  it('summarises change, best and record-setting points', () => {
+    const summary = summarizeSeries([
+      { date: 'a', value: 50 },
+      { date: 'b', value: 55 },
+      { date: 'c', value: 52 },
+      { date: 'd', value: 60 },
+    ])
+    expect(summary).toMatchObject({ change: 10, best: { date: 'd', value: 60 }, records: [1, 3] })
+    expect(summarizeSeries([])).toBeNull()
+  })
+
+  it('turns weekly load into points and ranges into start dates', () => {
+    expect(weeklyLoadSeries(rows, 'moon', '2026-11-13', 3)).toEqual([
+      { date: '2026-10-26', value: 360 },
+      { date: '2026-11-09', value: 963 },
+    ])
+    expect(rangeStart('1M', '2026-11-19')).toBe('2026-10-20')
+    expect(rangeStart('All', '2026-11-19')).toBeUndefined()
   })
 })

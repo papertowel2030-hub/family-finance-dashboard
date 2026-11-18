@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import type { Table } from 'dexie'
-import { BookOpen, Dumbbell, Target } from 'lucide-react'
+import { BookOpen, Dumbbell, Target, TrendingUp } from 'lucide-react'
 import { db } from '../db/database'
 import type { OwnerId, Workout } from '../types'
 import { todayInputDate } from '../utils/date'
@@ -9,13 +9,15 @@ import { EditWorkoutDialog } from './LogTab'
 import { LogPage } from './LogPage'
 import { GoalsTab } from './GoalsTab'
 import { JournalTab } from './JournalTab'
+import { ProgressTab } from './ProgressTab'
 import { PersonSwitch, type FitnessData } from './shared'
 
-type FitTab = 'log' | 'journal' | 'goals'
+type FitTab = 'log' | 'journal' | 'progress' | 'goals'
 
 const TABS: Array<{ id: FitTab; label: string; Icon: typeof Dumbbell }> = [
   { id: 'log', label: 'Log', Icon: Dumbbell },
   { id: 'journal', label: 'Journal', Icon: BookOpen },
+  { id: 'progress', label: 'Progress', Icon: TrendingUp },
   { id: 'goals', label: 'Goals', Icon: Target },
 ]
 
@@ -110,8 +112,10 @@ export function FitnessApp({ realmId }: { realmId?: string }) {
             setLogDate(date)
             setTab('log')
           }}
+          onOpenProgress={() => setTab('progress')}
         />
       ) : null}
+      {tab === 'progress' ? <ProgressTab data={data} person={person} onEdit={setEditing} /> : null}
       {tab === 'goals' ? <GoalsTab data={data} person={person} onDeleted={onDeleted} /> : null}
 
       {editing ? <EditWorkoutDialog workout={editing} data={data} onClose={() => setEditing(null)} onDeleted={onDeleted} /> : null}

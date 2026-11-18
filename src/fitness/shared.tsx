@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { AlertTriangle, Check, Moon, Trash2 } from 'lucide-react'
 import { deleteWorkout, restoreWorkout } from '../db/fitnessActions'
 import { formatDuration, formatSeconds, intervalSummary, sessionLoad, type DayInfo, type WeekDay } from '../lib/fitness'
@@ -183,6 +184,11 @@ export function describeIntensity(workout: Workout) {
   return `RPE ${workout.rpe}${load !== null ? ` · load ${formatNumber(load)}` : ' · add time for load'}`
 }
 
+/** The intensity line for any entry: rating and load, or an honest "unrated". */
+export function intensityText(workout: Workout) {
+  return describeIntensity(workout) ?? (workout.effort ? `effort ${workout.effort}/5 (old scale) · tap to rate 0–10` : 'Unrated · tap to rate')
+}
+
 const KIND_LABEL: Record<Workout['kind'], string> = { strength: 'Strength', cardio: 'Endurance', sport: 'Sport', rest: 'Rest' }
 export const kindLabel = (kind: Workout['kind']) => KIND_LABEL[kind]
 
@@ -212,7 +218,7 @@ export function DayEntries({
               </strong>
               <small>{describeWorkout(workout)}</small>
               <small className={`fit-intensity${workout.rpe === undefined ? ' unrated' : ''}`}>
-                {describeIntensity(workout) ?? (workout.effort ? `effort ${workout.effort}/5 (old scale) · tap to rate 0–10` : 'Unrated · tap to rate')}
+                {intensityText(workout)}
               </small>
               {workout.note ? <small className="fit-history-note">{workout.note}</small> : null}
             </span>
@@ -244,5 +250,98 @@ export function DayEntries({
         </li>
       ))}
     </ul>
+  )
+}
+
+const dayNumber = (date: string) => Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10))) / 86_400_000
+
+/**
+ * Progress line over real time (gaps stay gaps). Gold dots mark new personal bests; tap any dot
+ * to read its value. Dependency-free SVG, scales to its container.
+ */
+export function LineChart({
+  points,
+  unit,
+  records = [],
+  label,
+  formatDate,
+}: {
+  points: Array<{ date: string; value: number }>
+  unit: string
+  records?: number[]
+  label: string
+  formatDate: (date: string) => string
+}) {
+  const [picked, setPicked] = useState<number | null>(null)
+  if (!points.length) return null
+  const width = 320
+  const height = 168
+  const left = 38
+  const right = 12
+  const top = 14
+  const bottom = 24
+  const values = points.map((point) => point.value)
+  const rawMin = Math.min(...values)
+  const rawMax = Math.max(...values)
+  const pad = (rawMax - rawMin) * 0.12 || Math.max(1, rawMax * 0.1)
+  const min = Math.max(0, rawMin - pad)
+  const max = rawMax + pad
+  const firstDay = dayNumber(points[0].date)
+  const lastDay = dayNumber(points[points.length - 1].date)
+  const spanDays = lastDay - firstDay
+  const x = (date: string) => (spanDays ? left + ((dayNumber(date) - firstDay) / spanDays) * (width - left - right) : (left + width - right) / 2)
+  const y = (value: number) => top + (1 - (value - min) / (max - min)) * (height - top - bottom)
+  const coords = points.map((point) => [x(point.date), y(point.value)] as const)
+  const active = picked ?? points.length - 1
+  const recordSet = new Set(records)
+  const ticks = [min, (min + max) / 2, max]
+
+  return (
+    <figure className="fit-chart">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={label}>
+        {ticks.map((tick) => (
+          <g key={tick}>
+            <line className="fit-chart-grid" x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} />
+            <text className="fit-chart-axis" x={left - 6} y={y(tick) + 3} textAnchor="end">
+              {formatNumber(Math.round(tick * 10) / 10)}
+            </text>
+          </g>
+        ))}
+        <text className="fit-chart-axis" x={left} y={height - 6} textAnchor="start">
+          {formatDate(points[0].date)}
+        </text>
+        {points.length > 1 ? (
+          <text className="fit-chart-axis" x={width - right} y={height - 6} textAnchor="end">
+            {formatDate(points[points.length - 1].date)}
+          </text>
+        ) : null}
+        {coords.length > 1 ? <polyline className="fit-chart-line" points={coords.map(([px, py]) => `${px.toFixed(1)},${py.toFixed(1)}`).join(' ')} /> : null}
+        {coords.map(([px, py], index) => (
+          <g key={points[index].date}>
+            <circle className={`fit-chart-dot${recordSet.has(index) ? ' record' : ''}${index === active ? ' active' : ''}`} cx={px} cy={py} r={index === active ? 5.5 : recordSet.has(index) ? 4.5 : 3.5} />
+            <circle
+              className="fit-chart-hit"
+              cx={px}
+              cy={py}
+              r={12}
+              role="button"
+              tabIndex={0}
+              aria-label={`${formatDate(points[index].date)}: ${formatNumber(points[index].value)} ${unit}`}
+              onClick={() => setPicked(index)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') setPicked(index)
+              }}
+            />
+          </g>
+        ))}
+      </svg>
+      <figcaption>
+        <strong>
+          {formatNumber(points[active].value)} {unit}
+        </strong>{' '}
+        on {formatDate(points[active].date)}
+        {recordSet.has(active) ? <span className="fit-chart-pb"> · new best</span> : null}
+      </figcaption>
+    </figure>
   )
 }
