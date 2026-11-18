@@ -1,4 +1,4 @@
-import type { Meal, OwnerId, TrainingKind, Workout } from '../types'
+import type { IntervalSegment, Meal, OwnerId, TrainingKind, Workout } from '../types'
 
 /** Pure fitness logic: plain arrays in, plain objects out. Dates are YYYY-MM-DD strings. */
 
@@ -34,7 +34,7 @@ export interface ExercisePoint {
   volume: number
 }
 
-export type NudgeKind = 'rest' | 'volume' | 'niggle'
+export type NudgeKind = 'rest' | 'volume' | 'load' | 'niggle'
 
 export interface Nudge {
   kind: NudgeKind
@@ -263,6 +263,17 @@ export function getNudges(workouts: Workout[], ownerId: OwnerId, today: string):
     nudges.push({ kind: 'volume', message: `Strength volume is up ${percent}% on last week — build up gradually to stay injury-free.` })
   }
 
+  const loads = weeklyLoads(workouts, ownerId, today, LOAD_BASELINE_WEEKS + 1)
+  const current = loads[loads.length - 1]
+  const baseline = loads.slice(0, -1).filter((week) => week.load > 0)
+  if (baseline.length >= LOAD_MIN_BASELINE_WEEKS) {
+    const average = baseline.reduce((sum, week) => sum + week.load, 0) / baseline.length
+    if (current.load > average * LOAD_SPIKE_RATIO) {
+      const percent = Math.round((current.load / average - 1) * 100)
+      nudges.push({ kind: 'load', message: `This week's training load is ${percent}% above your recent average — big jumps are when niggles like to show up.` })
+    }
+  }
+
   const recentNiggle = workouts
     .filter((workout) => workout.ownerId === ownerId && workout.niggle && workout.date >= addDays(today, -6) && workout.date <= today)
     .sort((a, b) => b.date.localeCompare(a.date))[0]
@@ -284,4 +295,227 @@ export const DEFAULT_TARGETS = {
 export function progressRatio(value: number, target: number) {
   if (!(target > 0) || !(value > 0)) return 0
   return Math.min(value / target, 1)
+}
+
+// ---- Duration ----------------------------------------------------------------
+
+/** Minutes → "25:30" or "1:05:00" (seconds rounded). */
+export function formatDuration(minutes: number) {
+  const total = Math.round(minutes * 60)
+  const hours = Math.floor(total / 3600)
+  const mins = Math.floor((total % 3600) / 60)
+  const secs = total % 60
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return hours ? `${hours}:${pad(mins)}:${pad(secs)}` : `${mins}:${pad(secs)}`
+}
+
+/** Seconds → "0:30" / "5:00". */
+export const formatSeconds = (sec: number) => formatDuration(sec / 60)
+
+// ---- Intensity (session RPE) ----------------------------------------------------
+
+/** Share a week's load may exceed the recent average before we mention it. */
+export const LOAD_SPIKE_RATIO = 1.3
+/** Weeks averaged for the load baseline. */
+export const LOAD_BASELINE_WEEKS = 4
+/** Rated weeks needed before the load hint says anything. */
+export const LOAD_MIN_BASELINE_WEEKS = 3
+
+/**
+ * Session-RPE training load (Foster et al. 2001): CR-10 rating × minutes, in arbitrary units.
+ * Null when the session has no rating or no duration — "unrated", never guessed.
+ */
+export function sessionLoad(workout: Workout) {
+  if (workout.kind === 'rest' || workout.rpe === undefined || !workout.minutes) return null
+  return Math.round(workout.rpe * workout.minutes)
+}
+
+export interface WeekLoad {
+  start: string
+  load: number
+  byKind: Record<TrainingKind, number>
+  /** Training entries that week without a rating or duration. */
+  unrated: number
+}
+
+/** The last `weeks` Monday-based weeks (oldest first) with summed session load. */
+export function weeklyLoads(workouts: Workout[], ownerId: OwnerId, today: string, weeks: number): WeekLoad[] {
+  const thisWeek = weekStart(today)
+  const first = addDays(thisWeek, -7 * (weeks - 1))
+  const result = Array.from({ length: weeks }, (_, index) => ({
+    start: addDays(first, 7 * index),
+    load: 0,
+    byKind: { strength: 0, cardio: 0, sport: 0 } as Record<TrainingKind, number>,
+    unrated: 0,
+  }))
+  for (const workout of workouts) {
+    if (workout.ownerId !== ownerId || isRest(workout) || workout.date < first || workout.date > addDays(thisWeek, 6)) continue
+    const week = result.find((row) => row.start === weekStart(workout.date))
+    if (!week) continue
+    const load = sessionLoad(workout)
+    if (load === null) week.unrated += 1
+    else {
+      week.load += load
+      week.byKind[workout.kind as TrainingKind] += load
+    }
+  }
+  return result
+}
+
+/** Summed session load per date for one person (rated entries only). */
+export function dailyLoads(workouts: Workout[], ownerId: OwnerId) {
+  const map = new Map<string, number>()
+  for (const workout of workouts) {
+    if (workout.ownerId !== ownerId) continue
+    const load = sessionLoad(workout)
+    if (load !== null) map.set(workout.date, (map.get(workout.date) ?? 0) + load)
+  }
+  return map
+}
+
+/**
+ * Light / medium / hard bands from the person's own training days (terciles), so the
+ * calendar tint is relative to how *they* train rather than a made-up threshold.
+ * Returns 0 for no rated load, else 1–3.
+ */
+export function loadBand(load: number | undefined, allDailyLoads: number[]) {
+  if (!load) return 0
+  const values = allDailyLoads.filter((value) => value > 0)
+  if (values.length < 3) return 2
+  // Mid-rank percentile, so equal days share a band instead of tipping into the next one.
+  const below = values.filter((value) => value < load).length
+  const equal = values.filter((value) => value === load).length
+  const percentile = (below + equal / 2) / values.length
+  if (percentile < 1 / 3) return 1
+  if (percentile < 2 / 3) return 2
+  return 3
+}
+
+// ---- Intervals ---------------------------------------------------------------
+
+export interface IntervalSummary {
+  rounds: number
+  workSec: number
+  recoverSec: number
+  totalSec: number
+  /** Fastest work speed, km/h. */
+  topWorkSpeed: number | null
+  /** Typical (median) work-part length in seconds. */
+  workPartSec: number | null
+  /** Typical recovery-part length in seconds. */
+  recoverPartSec: number | null
+  /** Highest incline used in a work part. */
+  topWorkIncline: number | null
+  distanceKm: number
+}
+
+const median = (values: number[]) => {
+  if (!values.length) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  return sorted[Math.floor((sorted.length - 1) / 2)]
+}
+
+export function intervalSummary(segments: IntervalSegment[]): IntervalSummary {
+  const work = segments.filter((segment) => segment.type === 'work')
+  const recover = segments.filter((segment) => segment.type === 'recover')
+  const speeds = work.map((segment) => segment.speed ?? 0).filter((speed) => speed > 0)
+  const inclines = work.map((segment) => segment.incline ?? 0).filter((incline) => incline !== 0)
+  return {
+    rounds: work.length,
+    workSec: work.reduce((sum, segment) => sum + segment.sec, 0),
+    recoverSec: recover.reduce((sum, segment) => sum + segment.sec, 0),
+    totalSec: segments.reduce((sum, segment) => sum + segment.sec, 0),
+    topWorkSpeed: speeds.length ? Math.max(...speeds) : null,
+    workPartSec: median(work.map((segment) => segment.sec)),
+    recoverPartSec: median(recover.map((segment) => segment.sec)),
+    topWorkIncline: inclines.length ? Math.max(...inclines) : null,
+    distanceKm: Math.round(segments.reduce((sum, segment) => sum + ((segment.speed ?? 0) * segment.sec) / 3600, 0) * 100) / 100,
+  }
+}
+
+/** Latest earlier interval session with the same title, for "Repeat last" and "vs last time". */
+export function lastIntervalSession(workouts: Workout[], ownerId: OwnerId, title: string, exceptId?: string) {
+  const wanted = title.trim().toLowerCase()
+  return (
+    workouts
+      .filter((workout) => workout.ownerId === ownerId && workout.kind === 'cardio' && workout.id !== exceptId && workout.title.trim().toLowerCase() === wanted && workout.segments?.length)
+      .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))[0] ?? null
+  )
+}
+
+export interface IntervalChange {
+  label: string
+  from: string
+  to: string
+  /** True when the change makes the session harder (the progressive-overload direction). */
+  harder: boolean
+}
+
+/**
+ * What moved since last time, one line per variable — the progressive-overload levers:
+ * faster or longer work, more rounds, shorter recovery, steeper incline.
+ */
+export function compareIntervals(previous: IntervalSegment[], next: IntervalSegment[]): IntervalChange[] {
+  const a = intervalSummary(previous)
+  const b = intervalSummary(next)
+  const changes: IntervalChange[] = []
+  const num = (value: number) => String(Math.round(value * 10) / 10)
+  if (a.topWorkSpeed !== null && b.topWorkSpeed !== null && a.topWorkSpeed !== b.topWorkSpeed) {
+    changes.push({ label: 'Work speed', from: `${num(a.topWorkSpeed)}`, to: `${num(b.topWorkSpeed)} km/h`, harder: b.topWorkSpeed > a.topWorkSpeed })
+  }
+  if (a.workPartSec !== null && b.workPartSec !== null && a.workPartSec !== b.workPartSec) {
+    changes.push({ label: 'Work time', from: formatSeconds(a.workPartSec), to: formatSeconds(b.workPartSec), harder: b.workPartSec > a.workPartSec })
+  }
+  if (a.rounds !== b.rounds && a.rounds && b.rounds) changes.push({ label: 'Rounds', from: String(a.rounds), to: String(b.rounds), harder: b.rounds > a.rounds })
+  if (a.recoverPartSec !== null && b.recoverPartSec !== null && a.recoverPartSec !== b.recoverPartSec) {
+    changes.push({ label: 'Recovery', from: formatSeconds(a.recoverPartSec), to: formatSeconds(b.recoverPartSec), harder: b.recoverPartSec < a.recoverPartSec })
+  }
+  if ((a.topWorkIncline ?? 0) !== (b.topWorkIncline ?? 0)) {
+    changes.push({ label: 'Incline', from: `${num(a.topWorkIncline ?? 0)}`, to: `${num(b.topWorkIncline ?? 0)}%`, harder: (b.topWorkIncline ?? 0) > (a.topWorkIncline ?? 0) })
+  }
+  return changes
+}
+
+export interface IntervalPattern {
+  warmup?: IntervalSegment
+  work: IntervalSegment
+  recover?: IntervalSegment
+  rounds: number
+  cooldown?: IntervalSegment
+}
+
+/** Expands warm-up + rounds × (work, recover) + cool-down. The last round skips its recovery when a cool-down follows. */
+export function expandPattern(pattern: IntervalPattern): IntervalSegment[] {
+  const segments: IntervalSegment[] = []
+  if (pattern.warmup?.sec) segments.push({ ...pattern.warmup, type: 'warmup' })
+  for (let round = 0; round < pattern.rounds; round += 1) {
+    segments.push({ ...pattern.work, type: 'work' })
+    const last = round === pattern.rounds - 1
+    if (pattern.recover?.sec && !(last && pattern.cooldown?.sec)) segments.push({ ...pattern.recover, type: 'recover' })
+  }
+  if (pattern.cooldown?.sec) segments.push({ ...pattern.cooldown, type: 'cooldown' })
+  return segments
+}
+
+/** Best-effort inverse of expandPattern, used to prefill the builder from a saved session. */
+export function patternFromSegments(segments: IntervalSegment[]): IntervalPattern | null {
+  const work = segments.filter((segment) => segment.type === 'work')
+  if (!work.length) return null
+  const first = (type: IntervalSegment['type']) => segments.find((segment) => segment.type === type)
+  return {
+    warmup: first('warmup'),
+    work: work[0],
+    recover: first('recover'),
+    rounds: work.length,
+    cooldown: first('cooldown'),
+  }
+}
+
+/** True when every round matches the first one, so the simple builder can show it faithfully. */
+export function isUniformPattern(segments: IntervalSegment[]) {
+  const pattern = patternFromSegments(segments)
+  if (!pattern) return false
+  const same = (a: IntervalSegment[], b: IntervalSegment[]) =>
+    a.length === b.length && a.every((segment, index) => segment.type === b[index].type && segment.sec === b[index].sec && (segment.speed ?? 0) === (b[index].speed ?? 0) && (segment.incline ?? 0) === (b[index].incline ?? 0))
+  return same(expandPattern(pattern), segments)
 }

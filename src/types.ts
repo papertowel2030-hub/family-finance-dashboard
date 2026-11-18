@@ -121,6 +121,19 @@ export interface StrengthSet {
   weight: number
 }
 
+export type SegmentType = 'warmup' | 'work' | 'recover' | 'cooldown'
+
+/** One stretch of an interval session at a steady pace (e.g. a 30 s sprint at 14 km/h). */
+export interface IntervalSegment {
+  type: SegmentType
+  /** Duration in seconds. */
+  sec: number
+  /** Machine speed in km/h. */
+  speed?: number
+  /** Treadmill incline in %. */
+  incline?: number
+}
+
 /** One exercise or activity on one day, for one person. */
 export interface Workout extends SyncRecord {
   id: string
@@ -131,11 +144,16 @@ export interface Workout extends SyncRecord {
   /** Exercise name (strength), cardio type, or sport/activity. */
   title: string
   sets?: StrengthSet[]
+  /** Duration in minutes; may be fractional (25:30 is stored as 25.5). */
   minutes?: number
   /** Kilometres. */
   distance?: number
-  /** Perceived effort 1 (easy) to 5 (max). */
+  /** Legacy perceived effort 1 (easy) to 5 (max). Kept as-is; never counted as load. */
   effort?: number
+  /** Session RPE on the Borg CR-10 scale (0 rest … 10 max). Load = rpe × minutes. */
+  rpe?: number
+  /** Interval structure (warm-up, work/recover rounds, cool-down), in order. */
+  segments?: IntervalSegment[]
   /** True when something hurt — feeds the injury-watch nudge. */
   niggle?: boolean
   note?: string

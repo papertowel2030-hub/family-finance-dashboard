@@ -1,6 +1,6 @@
 import { AlertTriangle, Check, Moon, Trash2 } from 'lucide-react'
 import { deleteWorkout, restoreWorkout } from '../db/fitnessActions'
-import type { DayInfo, WeekDay } from '../lib/fitness'
+import { formatDuration, formatSeconds, intervalSummary, sessionLoad, type DayInfo, type WeekDay } from '../lib/fitness'
 import type { FitnessGoal, FitnessProfile, Meal, OwnerId, Workout } from '../types'
 import { REST_ENTRY_NOTE } from './copy'
 
@@ -153,17 +153,34 @@ export function PersonSwitch({ person, onChange }: { person: OwnerId; onChange: 
   )
 }
 
+/** Whole minutes read as "30 min"; anything with seconds as "25:30". */
+export function formatMinutes(minutes: number) {
+  return Number.isInteger(Math.round(minutes * 60) / 60) ? `${formatNumber(minutes)} min` : formatDuration(minutes)
+}
+
 export function describeWorkout(workout: Workout) {
+  const parts: string[] = []
   if (workout.kind === 'strength') {
     const sets = workout.sets ?? []
-    if (!sets.length) return 'Session logged'
-    const grouped = sets.map((set) => `${set.reps}×${set.weight ? formatNumber(set.weight) : 'BW'}`).join(', ')
-    return `${sets.length} set${sets.length === 1 ? '' : 's'} · ${grouped}${sets.some((set) => set.weight) ? ' kg' : ''}`
+    if (sets.length) {
+      const grouped = sets.map((set) => `${set.reps}×${set.weight ? formatNumber(set.weight) : 'BW'}`).join(', ')
+      parts.push(`${sets.length} set${sets.length === 1 ? '' : 's'} · ${grouped}${sets.some((set) => set.weight) ? ' kg' : ''}`)
+    }
   }
-  const parts = [workout.minutes ? `${formatNumber(workout.minutes)} min` : '']
+  if (workout.segments?.length) {
+    const summary = intervalSummary(workout.segments)
+    parts.push(`${summary.rounds} × ${summary.workPartSec ? formatSeconds(summary.workPartSec) : '—'}${summary.topWorkSpeed ? ` @ ${formatNumber(summary.topWorkSpeed)} km/h` : ''}`)
+  }
+  if (workout.minutes) parts.push(workout.segments?.length ? `total ${formatDuration(workout.minutes)}` : formatMinutes(workout.minutes))
   if (workout.distance) parts.push(`${formatNumber(workout.distance)} km`)
-  if (workout.effort) parts.push(`effort ${workout.effort}/5`)
-  return parts.filter(Boolean).join(' · ') || 'Session logged'
+  return parts.join(' · ') || 'Session logged'
+}
+
+/** "RPE 7 · load 315", or null when the entry has no rating yet. */
+export function describeIntensity(workout: Workout) {
+  if (workout.rpe === undefined) return null
+  const load = sessionLoad(workout)
+  return `RPE ${workout.rpe}${load !== null ? ` · load ${formatNumber(load)}` : ' · add time for load'}`
 }
 
 const KIND_LABEL: Record<Workout['kind'], string> = { strength: 'Strength', cardio: 'Endurance', sport: 'Sport', rest: 'Rest' }
@@ -194,6 +211,9 @@ export function DayEntries({
                 {workout.niggle ? <AlertTriangle size={14} className="fit-niggle" aria-label="Something hurt" /> : null}
               </strong>
               <small>{describeWorkout(workout)}</small>
+              <small className={`fit-intensity${workout.rpe === undefined ? ' unrated' : ''}`}>
+                {describeIntensity(workout) ?? (workout.effort ? `effort ${workout.effort}/5 (old scale) · tap to rate 0–10` : 'Unrated · tap to rate')}
+              </small>
               {workout.note ? <small className="fit-history-note">{workout.note}</small> : null}
             </span>
           </button>
