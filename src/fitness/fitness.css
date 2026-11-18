@@ -1452,3 +1452,362 @@ button.fit-dot {
 .fit-week-card .fit-week-head h2 {
   display: block;
 }
+
+/* ---- Intensity: time, how hard, intervals ----------------------------------- */
+.fit-field-label {
+  display: block;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.fit-field-label small {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.fit-duration-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.fit-duration-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fit-duration-chips .fit-chip {
+  min-height: 38px;
+  min-width: 44px;
+}
+
+.fit-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.6);
+  padding: 0 4px;
+}
+
+.fit-time input {
+  width: 2.8em;
+  min-height: 44px;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  text-align: center;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.fit-time b {
+  color: var(--muted);
+}
+
+.fit-distance {
+  display: grid;
+  gap: 6px;
+  font-weight: 700;
+  max-width: 260px;
+}
+
+.fit-mode button {
+  min-height: 40px;
+}
+
+.fit-rpe-scale {
+  display: grid;
+  grid-template-columns: repeat(11, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.fit-rpe-scale button {
+  min-height: 42px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--muted);
+  font-weight: 800;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* Low → high: calm green, amber, then a warm red at the top of the scale. */
+.fit-rpe-scale button.active {
+  color: #fffaf2;
+  border-color: transparent;
+  background: var(--leaf);
+}
+.fit-rpe-scale button.lvl-4.active,
+.fit-rpe-scale button.lvl-5.active,
+.fit-rpe-scale button.lvl-6.active {
+  background: var(--amber);
+}
+.fit-rpe-scale button.lvl-7.active,
+.fit-rpe-scale button.lvl-8.active,
+.fit-rpe-scale button.lvl-9.active,
+.fit-rpe-scale button.lvl-10.active {
+  background: #b0472f;
+}
+
+.fit-rpe-hint {
+  margin: 6px 0 0;
+  min-height: 1.3em;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.fit-rpe-hint strong {
+  color: var(--ink);
+}
+
+.fit-intervals {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.fit-round-box {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px dashed rgba(47, 111, 159, 0.45);
+  border-radius: 12px;
+  background: rgba(215, 231, 242, 0.35);
+}
+
+.fit-round-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 800;
+}
+
+.fit-rounds {
+  display: grid;
+  grid-template-columns: 40px auto 40px;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.fit-rounds button {
+  border: none;
+  background: var(--blue-soft);
+  color: var(--blue);
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.fit-rounds label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.fit-rounds input {
+  width: 2.4em;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: center;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.fit-seg {
+  display: grid;
+  grid-template-columns: 96px auto minmax(0, 120px) minmax(0, 120px) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.fit-seg-label {
+  align-self: center;
+  display: grid;
+  font-weight: 800;
+  font-size: 0.9rem;
+}
+
+.fit-seg-label small {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.72rem;
+}
+
+.fit-seg.work .fit-seg-label {
+  color: var(--blue);
+}
+
+select.fit-seg-label {
+  min-height: 44px;
+}
+
+.fit-seg-field {
+  display: grid;
+  gap: 2px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.fit-seg-field > input {
+  min-height: 46px;
+  min-width: 0;
+  width: 100%;
+  text-align: center;
+  font-weight: 800;
+}
+
+.fit-link-button {
+  justify-self: start;
+  min-height: 36px;
+  font-size: 0.84rem;
+  white-space: normal;
+  text-align: left;
+}
+
+.fit-interval-summary {
+  margin: 0;
+  font-weight: 800;
+  color: var(--blue);
+}
+
+.fit-interval-changes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fit-interval-changes li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  background: var(--leaf-soft);
+  color: #2f5538;
+}
+
+.fit-interval-changes li.easier {
+  background: var(--amber-soft);
+  color: var(--warning);
+}
+
+.fit-intensity {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.fit-intensity.unrated {
+  color: var(--muted);
+  font-weight: 600;
+  font-style: italic;
+}
+
+.fit-week-toggle button {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 0.82rem;
+}
+
+.fit-load-stack {
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-start;
+  width: 100%;
+  height: 100%;
+}
+
+.fit-load-stack i {
+  display: block;
+  width: 100%;
+  opacity: 1;
+}
+
+.fit-load-stack i.strength {
+  background: var(--leaf);
+}
+
+.fit-load-stack i.cardio {
+  background: var(--blue);
+}
+
+.fit-load-stack i.sport {
+  background: var(--amber);
+}
+
+.fit-week-col.load .fit-week-count {
+  font-size: 0.72rem;
+}
+
+.fit-week-col.load .fit-week-rest {
+  color: var(--muted);
+}
+
+/* Daily load: a little bar at the top of a trained day, longer = harder for *you*. */
+.fit-cal-load {
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 3px;
+  border-radius: 2px;
+  background: #b0472f;
+}
+
+.fit-cal-load.band-1 {
+  width: 22%;
+  opacity: 0.45;
+}
+
+.fit-cal-load.band-2 {
+  width: 45%;
+  opacity: 0.7;
+}
+
+.fit-cal-load.band-3 {
+  width: 70%;
+}
+
+@media (max-width: 620px) {
+  .fit-seg {
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+
+  .fit-seg-label {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+  }
+
+  .fit-rpe-scale {
+    gap: 3px;
+  }
+
+  .fit-rpe-scale button {
+    min-height: 40px;
+    font-size: 0.85rem;
+  }
+}

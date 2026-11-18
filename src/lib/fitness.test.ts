@@ -2,11 +2,22 @@ import { describe, expect, it } from 'vitest'
 import type { Meal, Workout } from '../types'
 import {
   addDays,
+  compareIntervals,
+  dailyLoads,
   dayMap,
   dayTotals,
   estimateOneRepMax,
   exerciseHistory,
+  expandPattern,
+  formatDuration,
   getNudges,
+  intervalSummary,
+  isUniformPattern,
+  lastIntervalSession,
+  loadBand,
+  patternFromSegments,
+  sessionLoad,
+  weeklyLoads,
   knownTitles,
   lastSessionSets,
   progressRatio,
@@ -227,5 +238,103 @@ describe('rest days', () => {
       { start: '2026-10-12', sessions: 2, rests: 1 },
       { start: '2026-10-19', sessions: 1, rests: 0 },
     ])
+  })
+})
+
+describe('duration', () => {
+  it('formats back to mm:ss without float noise', () => {
+    expect(formatDuration(25.5)).toBe('25:30')
+    expect(formatDuration(65)).toBe('1:05:00')
+    expect(formatDuration(750 / 60)).toBe('12:30')
+    expect(formatDuration(1 / 3)).toBe('0:20')
+  })
+})
+
+describe('session load (session RPE × minutes)', () => {
+  it('is null when unrated or without duration, never guessed from old 1–5 effort', () => {
+    expect(sessionLoad(workout('2026-11-02', { kind: 'sport', minutes: 60, rpe: 8 }))).toBe(480)
+    expect(sessionLoad(workout('2026-11-02', { kind: 'sport', minutes: 60, effort: 5 }))).toBeNull()
+    expect(sessionLoad(lift('2026-11-02', 'Squat', [[5, 80]], { rpe: 7 }))).toBeNull()
+    expect(sessionLoad(workout('2026-11-02', { minutes: 25.5, rpe: 0 }))).toBe(0)
+  })
+
+  it('sums load per week by kind and counts unrated entries', () => {
+    const rows = [
+      workout('2026-11-10', { kind: 'sport', title: 'Football', minutes: 60, rpe: 8 }),
+      workout('2026-11-11', { minutes: 30, rpe: 5 }),
+      workout('2026-11-12'),
+      workout('2026-11-03', { minutes: 20, rpe: 4 }),
+      workout('2026-11-12', { kind: 'rest', title: 'Rest', minutes: undefined }),
+    ]
+    const weeks = weeklyLoads(rows, 'moon', '2026-11-12', 2)
+    expect(weeks[0]).toMatchObject({ start: '2026-11-02', load: 80, unrated: 0 })
+    expect(weeks[1]).toMatchObject({ start: '2026-11-09', load: 630, unrated: 1 })
+    expect(weeks[1].byKind).toEqual({ strength: 0, cardio: 150, sport: 480 })
+    expect(dailyLoads(rows, 'moon').get('2026-11-10')).toBe(480)
+  })
+
+  it('bands days relative to the person’s own loads', () => {
+    const all = [100, 200, 300, 400, 500, 600]
+    expect(loadBand(undefined, all)).toBe(0)
+    expect(loadBand(100, all)).toBe(1)
+    expect(loadBand(350, all)).toBe(2)
+    expect(loadBand(600, all)).toBe(3)
+    // Ties stay together: three identical days are the middle, not "hard".
+    const tied = [123, 144, 360, 360, 810]
+    expect([123, 144, 360, 810].map((load) => loadBand(load, tied))).toEqual([1, 1, 2, 3])
+  })
+
+  it('hints when this week’s load jumps well above the 4-week average, and stays quiet without history', () => {
+    const steady = ['2026-10-20', '2026-10-27', '2026-11-03', '2026-11-10'].map((date) => workout(date, { minutes: 40, rpe: 5 }))
+    const today = '2026-11-19'
+    const easyWeek = [...steady, workout(today, { minutes: 40, rpe: 5 })]
+    expect(getNudges(easyWeek, 'moon', today).some((nudge) => nudge.kind === 'load')).toBe(false)
+    const bigWeek = [...steady, workout('2026-11-17', { minutes: 60, rpe: 8 }), workout(today, { minutes: 40, rpe: 5 })]
+    expect(getNudges(bigWeek, 'moon', today).find((nudge) => nudge.kind === 'load')?.message).toMatch(/240% above/)
+    expect(getNudges(bigWeek.slice(3), 'moon', today).some((nudge) => nudge.kind === 'load')).toBe(false)
+  })
+})
+
+describe('intervals', () => {
+  const pattern = { warmup: { type: 'warmup' as const, sec: 300, speed: 6 }, work: { type: 'work' as const, sec: 30, speed: 14 }, recover: { type: 'recover' as const, sec: 90, speed: 6 }, rounds: 6, cooldown: { type: 'cooldown' as const, sec: 300, speed: 5 } }
+
+  it('expands a pattern and reads it back', () => {
+    const segments = expandPattern(pattern)
+    // warm-up + 6 work + 5 recover (last one replaced by the cool-down) + cool-down
+    expect(segments).toHaveLength(13)
+    expect(segments.filter((segment) => segment.type === 'work')).toHaveLength(6)
+    expect(patternFromSegments(segments)).toMatchObject({ rounds: 6, work: { sec: 30, speed: 14 } })
+    expect(isUniformPattern(segments)).toBe(true)
+    const tweaked = segments.map((segment, index) => (index === 3 ? { ...segment, speed: 15 } : segment))
+    expect(isUniformPattern(tweaked)).toBe(false)
+  })
+
+  it('summarises work, recovery and distance', () => {
+    const summary = intervalSummary(expandPattern(pattern))
+    expect(summary).toMatchObject({ rounds: 6, workSec: 180, recoverSec: 450, totalSec: 1230, topWorkSpeed: 14, workPartSec: 30, recoverPartSec: 90 })
+    // 6·300 + 14·180 + 6·450 + 5·300 = 8520 → 2.37 km
+    expect(summary.distanceKm).toBe(2.37)
+  })
+
+  it('lists which progression lever moved since last time', () => {
+    const before = expandPattern(pattern)
+    const after = expandPattern({ ...pattern, work: { ...pattern.work, speed: 14.5 }, recover: { ...pattern.recover, sec: 75 }, rounds: 7 })
+    const changes = compareIntervals(before, after)
+    expect(changes.map((change) => [change.label, change.to, change.harder])).toEqual([
+      ['Work speed', '14.5 km/h', true],
+      ['Rounds', '7', true],
+      ['Recovery', '1:15', true],
+    ])
+    expect(compareIntervals(before, before)).toEqual([])
+  })
+
+  it('finds the latest earlier session with the same name', () => {
+    const rows = [
+      workout('2026-11-01', { title: 'Treadmill', segments: expandPattern(pattern) }),
+      workout('2026-11-08', { title: 'treadmill ', segments: expandPattern({ ...pattern, rounds: 7 }) }),
+      workout('2026-11-09', { title: 'Treadmill' }),
+    ]
+    expect(lastIntervalSession(rows, 'moon', 'Treadmill')?.date).toBe('2026-11-08')
+    expect(lastIntervalSession(rows, 'moon', 'Treadmill', rows[1].id)?.date).toBe('2026-11-01')
   })
 })

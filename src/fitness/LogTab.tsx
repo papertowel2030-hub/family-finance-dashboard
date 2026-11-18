@@ -1,9 +1,20 @@
 import { useMemo, useState } from 'react'
 import { Check, Dumbbell, Footprints, Minus, Plus, Trash2, Trophy } from 'lucide-react'
 import { addWorkout, deleteWorkout, QUICK_TITLES, restoreWorkout, updateWorkout } from '../db/fitnessActions'
-import { knownTitles, lastSessionSets } from '../lib/fitness'
+import { knownTitles, lastIntervalSession, lastSessionSets } from '../lib/fitness'
 import type { OwnerId, TrainingKind, Workout } from '../types'
 import { todayInputDate } from '../utils/date'
+import {
+  draftFromSegments,
+  DurationField,
+  durationFromMinutes,
+  durationToMinutes,
+  EMPTY_DURATION,
+  EMPTY_INTERVALS,
+  IntervalBuilder,
+  RpeField,
+  segmentsFromDraft,
+} from './IntensityFields'
 import { formatNumber, parseNumber, type FitnessData, type OnDeleted } from './shared'
 
 export const KINDS: Array<{ id: TrainingKind; label: string; Icon: typeof Dumbbell }> = [
@@ -55,9 +66,11 @@ export function WorkoutForm({
   const [sets, setSets] = useState<SetRow[]>(
     initial?.sets?.length ? initial.sets.map((set) => ({ reps: String(set.reps), weight: String(set.weight) })) : [{ reps: '', weight: '' }],
   )
-  const [minutes, setMinutes] = useState(initial?.minutes ? String(initial.minutes) : '')
-  const [distance, setDistance] = useState(initial?.distance ? String(initial.distance) : '')
-  const [effort, setEffort] = useState<number | undefined>(initial?.effort)
+  const [duration, setDuration] = useState(() => durationFromMinutes(initial?.segments?.length ? undefined : initial?.minutes))
+  const [distance, setDistance] = useState(initial?.distance && !initial.segments?.length ? String(initial.distance) : '')
+  const [rpe, setRpe] = useState<number | undefined>(initial?.rpe)
+  const [useIntervals, setUseIntervals] = useState(Boolean(initial?.segments?.length))
+  const [intervals, setIntervals] = useState(() => (initial?.segments?.length ? draftFromSegments(initial.segments) : EMPTY_INTERVALS))
   const [niggle, setNiggle] = useState(Boolean(initial?.niggle))
   const [note, setNote] = useState(initial?.note ?? '')
   const [error, setError] = useState('')
@@ -74,6 +87,7 @@ export function WorkoutForm({
   const chips = suggestions.slice(0, MAX_CHIPS)
   const lastSets = kind === 'strength' && title.trim() ? lastSessionSets(data.workouts, person, title) : null
   const setsAreBlank = sets.every((set) => !set.reps && !set.weight)
+  const lastIntervals = kind === 'cardio' && title.trim() ? (lastIntervalSession(data.workouts, person, title, initial?.id)?.segments ?? null) : null
 
   const changeKind = (next: TrainingKind) => {
     setKind(next)
@@ -101,9 +115,13 @@ export function WorkoutForm({
         if (kind === 'strength' && parsedSets.some((set) => Number.isNaN(set.reps) || Number.isNaN(set.weight))) {
           return setError('Reps and weight must be numbers.')
         }
-        const parsedMinutes = parseNumber(minutes)
-        const parsedDistance = parseNumber(distance)
-        if (Number.isNaN(parsedMinutes) || Number.isNaN(parsedDistance)) return setError('Minutes and distance must be numbers.')
+        const intervalMode = kind === 'cardio' && useIntervals
+        const parsedMinutes = intervalMode ? undefined : durationToMinutes(duration)
+        const parsedDistance = intervalMode ? undefined : parseNumber(distance)
+        if (Number.isNaN(parsedMinutes)) return setError('Time must be minutes and seconds (seconds 0–59).')
+        if (Number.isNaN(parsedDistance)) return setError('Distance must be a number.')
+        const builtIntervals = intervalMode ? segmentsFromDraft(intervals) : null
+        if (builtIntervals && 'error' in builtIntervals) return setError(builtIntervals.error)
 
         setSaving(true)
         try {
@@ -116,7 +134,10 @@ export function WorkoutForm({
             sets: kind === 'strength' ? parsedSets : undefined,
             minutes: parsedMinutes,
             distance: kind === 'cardio' ? parsedDistance : undefined,
-            effort: kind === 'sport' ? effort : undefined,
+            // Legacy 1–5 effort is carried through untouched; new ratings use the 0–10 RPE.
+            effort: initial?.effort,
+            rpe,
+            segments: builtIntervals && 'segments' in builtIntervals ? builtIntervals.segments : undefined,
             niggle,
             note,
             realmId: initial?.realmId ?? data.realmId,
@@ -129,9 +150,10 @@ export function WorkoutForm({
             setSaved(`Saved ${title.trim()} ✓`)
             setTitle('')
             setSets([{ reps: '', weight: '' }])
-            setMinutes('')
+            setDuration(EMPTY_DURATION)
             setDistance('')
-            setEffort(undefined)
+            setRpe(undefined)
+            setIntervals(EMPTY_INTERVALS)
             setNiggle(false)
             setNote('')
             onDone?.()
@@ -250,37 +272,34 @@ export function WorkoutForm({
             Add set
           </button>
         </div>
+      ) : null}
+
+      {kind === 'cardio' ? (
+        <div className="segmented-control fit-mode" role="group" aria-label="Steady or intervals">
+          <button type="button" className={useIntervals ? '' : 'active'} aria-pressed={!useIntervals} onClick={() => setUseIntervals(false)}>
+            Steady
+          </button>
+          <button type="button" className={useIntervals ? 'active' : ''} aria-pressed={useIntervals} onClick={() => setUseIntervals(true)}>
+            Intervals
+          </button>
+        </div>
+      ) : null}
+
+      {kind === 'cardio' && useIntervals ? (
+        <IntervalBuilder value={intervals} onChange={setIntervals} lastSegments={lastIntervals} />
       ) : (
-        <div className="form-grid fit-form-grid">
-          <label>
-            Minutes
-            <input inputMode="numeric" value={minutes} onChange={(event) => setMinutes(event.target.value)} />
-          </label>
+        <>
+          <DurationField value={duration} onChange={setDuration} optional={kind === 'strength'} />
           {kind === 'cardio' ? (
-            <label>
+            <label className="fit-distance">
               Distance km (optional)
               <input inputMode="decimal" value={distance} onChange={(event) => setDistance(event.target.value)} />
             </label>
-          ) : (
-            <div className="fit-effort" role="group" aria-label="Effort">
-              <span>Effort</span>
-              <div>
-                {[1, 2, 3, 4, 5].map((level) => (
-                  <button
-                    key={level}
-                    type="button"
-                    className={effort === level ? 'active' : ''}
-                    aria-pressed={effort === level}
-                    onClick={() => setEffort(effort === level ? undefined : level)}
-                  >
-                    {level}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+          ) : null}
+        </>
       )}
+
+      <RpeField value={rpe} onChange={setRpe} legacyEffort={initial?.rpe === undefined ? initial?.effort : undefined} />
 
       <label className="fit-note">
         Note (optional)

@@ -1,5 +1,5 @@
 import { db } from './database'
-import type { FitnessGoal, FitnessProfile, GoalArea, Meal, OwnerId, StrengthSet, TrainingKind, Workout } from '../types'
+import type { FitnessGoal, FitnessProfile, GoalArea, IntervalSegment, Meal, OwnerId, StrengthSet, TrainingKind, Workout } from '../types'
 import { DEFAULT_TARGETS } from '../lib/fitness'
 import { makeId, nowIso } from '../utils/id'
 
@@ -30,9 +30,28 @@ export interface WorkoutInput {
   minutes?: number
   distance?: number
   effort?: number
+  rpe?: number
+  segments?: IntervalSegment[]
   niggle?: boolean
   note?: string
   realmId?: string
+}
+
+const SEGMENT_TYPES = new Set(['warmup', 'work', 'recover', 'cooldown'])
+export const MAX_SEGMENTS = 60
+
+function cleanSegments(segments: IntervalSegment[] | undefined) {
+  if (!segments?.length) return undefined
+  if (segments.length > MAX_SEGMENTS) throw new Error(`Up to ${MAX_SEGMENTS} interval parts, please.`)
+  return segments.map((segment) => {
+    if (!SEGMENT_TYPES.has(segment.type)) throw new Error('Unknown interval part.')
+    const clean: IntervalSegment = { type: segment.type, sec: Math.round(cleanNumber(segment.sec, 'Interval time', { min: 1, max: 14400 }) ?? 0) }
+    const speed = cleanNumber(segment.speed, 'Speed', { min: 0, max: 40 })
+    const incline = cleanNumber(segment.incline, 'Incline', { min: -5, max: 40 })
+    if (speed) clean.speed = speed
+    if (incline) clean.incline = incline
+    return clean
+  })
 }
 
 /** Title given to a one-tap "I trained" entry. */
@@ -48,6 +67,8 @@ export function isBareMarker(workout: Workout) {
     !workout.minutes &&
     !workout.distance &&
     !workout.effort &&
+    workout.rpe === undefined &&
+    !workout.segments?.length &&
     !workout.niggle &&
     !workout.note
   )
@@ -67,8 +88,15 @@ function buildWorkoutFields(input: WorkoutInput, { allowBare = false } = {}) {
     cleanNumber(set.weight, 'Weight', { min: 0, max: 2000 })
   })
 
-  const minutes = cleanNumber(input.minutes, 'Minutes', { min: 0, max: 1440 })
+  const segments = input.kind === 'cardio' ? cleanSegments(input.segments) : undefined
+  // With intervals, time and distance come from the parts themselves, so they can't disagree.
+  const segmentSec = segments?.reduce((sum, segment) => sum + segment.sec, 0) ?? 0
+  const segmentKm = segments?.reduce((sum, segment) => sum + ((segment.speed ?? 0) * segment.sec) / 3600, 0) ?? 0
+  if (segmentSec > 1440 * 60) throw new Error('Intervals add up to more than a day. Impressive, but no.')
+  const minutes = segments ? segmentSec / 60 : cleanNumber(input.minutes, 'Minutes', { min: 0, max: 1440 })
   if (input.kind !== 'strength' && !minutes && !allowBare) throw new Error('Add how many minutes you trained.')
+  const typedDistance = cleanNumber(input.distance, 'Distance', { min: 0, max: 1000 }) || undefined
+  const distance = typedDistance ?? (segmentKm ? Math.round(segmentKm * 100) / 100 : undefined)
 
   return {
     ownerId: input.ownerId,
@@ -77,8 +105,10 @@ function buildWorkoutFields(input: WorkoutInput, { allowBare = false } = {}) {
     title,
     sets,
     minutes: input.kind === 'strength' ? minutes || undefined : minutes,
-    distance: cleanNumber(input.distance, 'Distance', { min: 0, max: 1000 }) || undefined,
+    distance,
     effort: cleanNumber(input.effort, 'Effort', { min: 1, max: 5 }),
+    rpe: cleanNumber(input.rpe, 'How hard', { min: 0, max: 10 }),
+    segments,
     niggle: input.niggle ? true : undefined,
     note: optionalText(input.note),
   }

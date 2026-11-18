@@ -276,3 +276,63 @@ describe('old hidden copies', () => {
     expect(await db.workouts.count()).toBe(3)
   })
 })
+
+describe('intensity and intervals', () => {
+  const pattern = [
+    { type: 'warmup' as const, sec: 300, speed: 6 },
+    { type: 'work' as const, sec: 30, speed: 14, incline: 1 },
+    { type: 'recover' as const, sec: 90, speed: 6 },
+    { type: 'work' as const, sec: 30, speed: 14, incline: 1 },
+    { type: 'cooldown' as const, sec: 300, speed: 5 },
+  ]
+
+  it('derives minutes and distance from interval parts and stores the RPE', async () => {
+    const saved = await addWorkout({ ownerId: 'moon', date: '2026-11-19', kind: 'cardio', title: 'Treadmill', segments: pattern, rpe: 7, realmId: REALM })
+    expect(saved.minutes).toBeCloseTo(750 / 60)
+    // 6·300 + 14·30 + 6·90 + 14·30 + 5·300 = 4680 km·s/h → 1.3 km
+    expect(saved.distance).toBe(1.3)
+    expect(saved.rpe).toBe(7)
+    expect((await db.workouts.get(saved.id))?.segments).toHaveLength(5)
+  })
+
+  it('keeps a typed distance and stores mm:ss as fractional minutes', async () => {
+    const run = await addWorkout({ ownerId: 'moon', date: '2026-11-19', kind: 'cardio', title: 'Run', minutes: 25.5, distance: 5, rpe: 5, realmId: REALM })
+    expect(run.minutes).toBe(25.5)
+    expect(run.distance).toBe(5)
+  })
+
+  it('rejects bad ratings and parts, and ignores intervals on non-endurance kinds', async () => {
+    const base = { ownerId: 'moon' as const, date: '2026-11-19', title: 'Football', realmId: REALM }
+    await expect(addWorkout({ ...base, kind: 'sport', minutes: 60, rpe: 11 })).rejects.toThrow(/How hard/)
+    await expect(addWorkout({ ...base, kind: 'cardio', segments: [{ type: 'work', sec: 0 }] })).rejects.toThrow(/Interval time/)
+    await expect(addWorkout({ ...base, kind: 'cardio', segments: [{ type: 'work', sec: 30, speed: 99 }] })).rejects.toThrow(/Speed/)
+    const sport = await addWorkout({ ...base, kind: 'sport', minutes: 60, rpe: 0, segments: pattern })
+    expect(sport.segments).toBeUndefined()
+    expect(sport.rpe).toBe(0)
+  })
+
+  it('leaves an old 1–5 effort entry exactly as it was when nothing is edited, and keeps effort on edit', async () => {
+    const old = await addWorkout({ ownerId: 'moon', date: '2026-10-01', kind: 'sport', title: 'Football', minutes: 90, effort: 4, realmId: REALM })
+    await updateWorkout(old.id, { ownerId: 'moon', date: '2026-10-01', kind: 'sport', title: 'Football', minutes: 90, effort: 4, rpe: 8, realmId: REALM })
+    const edited = await db.workouts.get(old.id)
+    expect(edited?.effort).toBe(4)
+    expect(edited?.rpe).toBe(8)
+  })
+
+  it('treats a rated or interval entry as detail, not a bare marker', () => {
+    const base = { id: 'x', ownerId: 'moon' as const, date: '2026-11-19', kind: 'cardio' as const, title: 'Endurance', createdAt: stamp, updatedAt: stamp }
+    expect(isBareMarker(base)).toBe(true)
+    expect(isBareMarker({ ...base, rpe: 0 })).toBe(false)
+    expect(isBareMarker({ ...base, segments: pattern })).toBe(false)
+  })
+
+  it('round-trips the new fields through a backup', async () => {
+    await addWorkout({ ownerId: 'moon', date: '2026-11-19', kind: 'cardio', title: 'Treadmill', segments: pattern, rpe: 7, realmId: REALM })
+    const parsed = parseBackup(JSON.stringify(await exportBackup(REALM)))
+    await db.workouts.clear()
+    await mergeBackup(parsed, REALM)
+    const [row] = await db.workouts.toArray()
+    expect(row.rpe).toBe(7)
+    expect(row.segments).toEqual(pattern)
+  })
+})
