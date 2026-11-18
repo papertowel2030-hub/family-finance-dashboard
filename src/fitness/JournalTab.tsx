@@ -23,12 +23,14 @@ export function JournalTab({
   onEdit,
   onDeleted,
   onLogDay,
+  onOpenProgress,
 }: {
   data: FitnessData
   person: OwnerId
   onEdit: (workout: Workout) => void
   onDeleted: OnDeleted
   onLogDay: (date: string) => void
+  onOpenProgress: () => void
 }) {
   const { today, workouts, meals, profiles } = data
   const [month, setMonth] = useState(monthKeyFromDate(today))
@@ -196,8 +198,11 @@ export function JournalTab({
         <section className="panel">
           <div className="section-header compact">
             <h2>Strength progress</h2>
-            {exercises.some(({ history }) => history.length < 2) ? <span className="small-label">{PROGRESS_HINT}</span> : null}
+            <button type="button" className="ghost-button" onClick={onOpenProgress}>
+              See all →
+            </button>
           </div>
+          {exercises.some(({ history }) => history.length < 2) ? <p className="small-label">{PROGRESS_HINT}</p> : null}
           <div className="fit-progress-grid">
             {exercises.map(({ title, history }) => {
               const latest = history[history.length - 1]

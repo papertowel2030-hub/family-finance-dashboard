@@ -519,3 +519,173 @@ export function isUniformPattern(segments: IntervalSegment[]) {
     a.length === b.length && a.every((segment, index) => segment.type === b[index].type && segment.sec === b[index].sec && (segment.speed ?? 0) === (b[index].speed ?? 0) && (segment.incline ?? 0) === (b[index].incline ?? 0))
   return same(expandPattern(pattern), segments)
 }
+
+// ---- Progress over time ---------------------------------------------------------
+
+export type ProgressMetric =
+  | 'oneRepMax'
+  | 'topWeight'
+  | 'bestReps'
+  | 'volume'
+  | 'distance'
+  | 'avgSpeed'
+  | 'workSpeed'
+  | 'rounds'
+  | 'time'
+  | 'load'
+  | 'rpe'
+
+export interface MetricInfo {
+  id: ProgressMetric
+  label: string
+  unit: string
+}
+
+export const METRICS: Record<ProgressMetric, MetricInfo> = {
+  oneRepMax: { id: 'oneRepMax', label: 'Est. 1RM', unit: 'kg' },
+  topWeight: { id: 'topWeight', label: 'Top set', unit: 'kg' },
+  bestReps: { id: 'bestReps', label: 'Best reps', unit: 'reps' },
+  volume: { id: 'volume', label: 'Volume', unit: 'kg' },
+  distance: { id: 'distance', label: 'Distance', unit: 'km' },
+  avgSpeed: { id: 'avgSpeed', label: 'Avg speed', unit: 'km/h' },
+  workSpeed: { id: 'workSpeed', label: 'Work speed', unit: 'km/h' },
+  rounds: { id: 'rounds', label: 'Rounds', unit: 'rounds' },
+  time: { id: 'time', label: 'Time', unit: 'min' },
+  load: { id: 'load', label: 'Load', unit: 'AU' },
+  rpe: { id: 'rpe', label: 'How hard', unit: '/10' },
+}
+
+export interface ExerciseEntry {
+  title: string
+  kind: TrainingKind
+  sessions: number
+  lastDate: string
+}
+
+/** Every exercise/activity name the person has logged, most recent first. Names matching `skip` (one-tap ticks) are left out. */
+export function exerciseList(workouts: Workout[], ownerId: OwnerId, skip: string[] = []): ExerciseEntry[] {
+  const skipped = new Set(skip.map((title) => title.toLowerCase()))
+  const map = new Map<string, ExerciseEntry>()
+  for (const workout of workouts) {
+    if (workout.ownerId !== ownerId || isRest(workout)) continue
+    const title = workout.title.trim()
+    const key = `${workout.kind}|${title.toLowerCase()}`
+    if (!title || skipped.has(title.toLowerCase())) continue
+    const entry = map.get(key)
+    if (!entry) map.set(key, { title, kind: workout.kind as TrainingKind, sessions: 1, lastDate: workout.date })
+    else {
+      entry.sessions += 1
+      if (workout.date > entry.lastDate) entry.lastDate = workout.date
+    }
+  }
+  return [...map.values()].sort((a, b) => b.lastDate.localeCompare(a.lastDate) || b.sessions - a.sessions)
+}
+
+/** Metrics worth charting for a kind, best first. */
+export function metricsFor(kind: TrainingKind, workouts: Workout[] = []): ProgressMetric[] {
+  if (kind === 'strength') {
+    const weighted = workouts.some((workout) => workout.sets?.some((set) => set.weight > 0))
+    return weighted ? ['oneRepMax', 'topWeight', 'volume', 'bestReps', 'load'] : ['bestReps', 'load', 'time']
+  }
+  if (kind === 'cardio') {
+    const intervals = workouts.some((workout) => workout.segments?.length)
+    return intervals ? ['workSpeed', 'rounds', 'distance', 'time', 'load'] : ['distance', 'avgSpeed', 'time', 'load']
+  }
+  return ['load', 'time', 'rpe']
+}
+
+export interface ProgressPoint {
+  date: string
+  value: number
+}
+
+const round1 = (value: number) => Math.round(value * 10) / 10
+
+/**
+ * One point per day for an exercise (case-insensitive name, same kind), oldest first.
+ * Days where the metric can't be measured (e.g. no RPE for load) are left out, never zero-filled.
+ */
+export function progressSeries(workouts: Workout[], ownerId: OwnerId, kind: TrainingKind, title: string, metric: ProgressMetric): ProgressPoint[] {
+  const wanted = title.trim().toLowerCase()
+  const rows = workouts.filter((workout) => workout.ownerId === ownerId && workout.kind === kind && workout.title.trim().toLowerCase() === wanted)
+
+  if (kind === 'strength' && (metric === 'oneRepMax' || metric === 'topWeight' || metric === 'bestReps' || metric === 'volume')) {
+    return exerciseHistory(rows, ownerId, title)
+      .map((point) => {
+        const value = metric === 'oneRepMax' ? point.oneRepMax : metric === 'topWeight' ? point.bestWeight : metric === 'bestReps' ? point.bestReps : point.volume
+        return value ? { date: point.date, value: round1(value) } : null
+      })
+      .filter((point): point is ProgressPoint => point !== null)
+  }
+
+  const byDate = new Map<string, Workout[]>()
+  for (const workout of rows) byDate.set(workout.date, [...(byDate.get(workout.date) ?? []), workout])
+
+  const sum = (values: Array<number | null | undefined>) => {
+    const known = values.filter((value): value is number => typeof value === 'number')
+    return known.length ? known.reduce((total, value) => total + value, 0) : null
+  }
+  const max = (values: Array<number | null | undefined>) => {
+    const known = values.filter((value): value is number => typeof value === 'number')
+    return known.length ? Math.max(...known) : null
+  }
+
+  const points: ProgressPoint[] = []
+  for (const [date, day] of byDate) {
+    let value: number | null = null
+    if (metric === 'distance') value = sum(day.map((workout) => workout.distance))
+    else if (metric === 'time') value = sum(day.map((workout) => workout.minutes))
+    else if (metric === 'load') value = sum(day.map(sessionLoad))
+    else if (metric === 'rpe') value = max(day.map((workout) => workout.rpe))
+    else if (metric === 'workSpeed') value = max(day.map((workout) => (workout.segments?.length ? intervalSummary(workout.segments).topWorkSpeed : null)))
+    else if (metric === 'rounds') value = max(day.map((workout) => (workout.segments?.length ? intervalSummary(workout.segments).rounds : null)))
+    else if (metric === 'avgSpeed') {
+      const km = sum(day.map((workout) => (workout.distance && workout.minutes ? workout.distance : null)))
+      const minutes = sum(day.map((workout) => (workout.distance && workout.minutes ? workout.minutes : null)))
+      value = km && minutes ? km / (minutes / 60) : null
+    }
+    if (value !== null && (value > 0 || metric === 'rpe')) points.push({ date, value: round1(value) })
+  }
+  return points.sort((a, b) => a.date.localeCompare(b.date))
+}
+
+/** Weekly session load as chart points (week start → load), skipping weeks with nothing rated. */
+export function weeklyLoadSeries(workouts: Workout[], ownerId: OwnerId, today: string, weeks: number): ProgressPoint[] {
+  return weeklyLoads(workouts, ownerId, today, weeks)
+    .filter((week) => week.load > 0)
+    .map((week) => ({ date: week.start, value: week.load }))
+}
+
+export type ProgressRange = '1M' | '3M' | '1Y' | 'All'
+
+/** First date included in a range ending today (undefined = everything). */
+export function rangeStart(range: ProgressRange, today: string) {
+  if (range === '1M') return addDays(today, -30)
+  if (range === '3M') return addDays(today, -91)
+  if (range === '1Y') return addDays(today, -365)
+  return undefined
+}
+
+export interface SeriesSummary {
+  latest: ProgressPoint
+  first: ProgressPoint
+  best: ProgressPoint
+  change: number
+  /** Indexes of points that set a new best at the time (personal records within the series). */
+  records: number[]
+}
+
+export function summarizeSeries(points: ProgressPoint[]): SeriesSummary | null {
+  if (!points.length) return null
+  const records: number[] = []
+  let best = points[0]
+  points.forEach((point, index) => {
+    if (index === 0 || point.value > best.value) {
+      if (index > 0) records.push(index)
+      best = point.value > best.value || index === 0 ? point : best
+    }
+  })
+  const first = points[0]
+  const latest = points[points.length - 1]
+  return { latest, first, best, change: round1(latest.value - first.value), records }
+}
