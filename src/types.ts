@@ -134,6 +134,29 @@ export interface IntervalSegment {
   incline?: number
 }
 
+export type MuscleId =
+  | 'chest'
+  | 'shoulders'
+  | 'biceps'
+  | 'triceps'
+  | 'forearms'
+  | 'abs'
+  | 'obliques'
+  | 'traps'
+  | 'lats'
+  | 'lowerBack'
+  | 'glutes'
+  | 'quads'
+  | 'hamstrings'
+  | 'adductors'
+  | 'calves'
+
+/** Muscles an entry worked: main movers count fully, helpers count half. */
+export interface MuscleSet {
+  primary: MuscleId[]
+  secondary?: MuscleId[]
+}
+
 /** One exercise or activity on one day, for one person. */
 export interface Workout extends SyncRecord {
   id: string
@@ -154,6 +177,8 @@ export interface Workout extends SyncRecord {
   rpe?: number
   /** Interval structure (warm-up, work/recover rounds, cool-down), in order. */
   segments?: IntervalSegment[]
+  /** Muscles picked by hand; when absent the body map uses the built-in guess for the name. */
+  muscles?: MuscleSet
   /** True when something hurt — feeds the injury-watch nudge. */
   niggle?: boolean
   note?: string

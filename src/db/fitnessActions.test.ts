@@ -336,3 +336,20 @@ describe('intensity and intervals', () => {
     expect(row.segments).toEqual(pattern)
   })
 })
+
+describe('muscles on entries', () => {
+  it('stores cleaned hand-picked muscles, and leaves them off when none were picked', async () => {
+    const picked = await addWorkout({
+      ownerId: 'moon',
+      date: '2026-11-19',
+      kind: 'strength',
+      title: 'Zercher carry',
+      sets: [{ reps: 1, weight: 60 }],
+      muscles: { primary: ['abs', 'abs', 'bogus' as never], secondary: ['abs', 'traps'] },
+      realmId: REALM,
+    })
+    expect((await db.workouts.get(picked.id))?.muscles).toEqual({ primary: ['abs'], secondary: ['traps'] })
+    const plain = await addWorkout({ ownerId: 'moon', date: '2026-11-19', kind: 'strength', title: 'Squat', sets: [{ reps: 5, weight: 80 }], realmId: REALM })
+    expect((await db.workouts.get(plain.id))?.muscles).toBeUndefined()
+  })
+})
