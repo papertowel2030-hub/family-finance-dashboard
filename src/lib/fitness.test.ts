@@ -26,6 +26,7 @@ import {
   intervalSummary,
   isUniformPattern,
   lastIntervalSession,
+  dayLoadBand,
   loadBand,
   patternFromSegments,
   sessionLoad,
@@ -283,6 +284,13 @@ describe('session load (session RPE × minutes)', () => {
     expect(weeks[1]).toMatchObject({ start: '2026-11-09', load: 630, unrated: 1 })
     expect(weeks[1].byKind).toEqual({ strength: 0, cardio: 150, sport: 480 })
     expect(dailyLoads(rows, 'moon').get('2026-11-10')).toBe(480)
+  })
+
+  it('shades a day by its own load on fixed bands, so a light day never matches a heavy one', () => {
+    expect([undefined, 0].map(dayLoadBand)).toEqual([0, 0])
+    expect([9, 74].map(dayLoadBand)).toEqual([1, 1])
+    expect([75, 104, 199].map(dayLoadBand)).toEqual([2, 2, 2])
+    expect(dayLoadBand(200)).toBe(3)
   })
 
   it('bands days relative to the person’s own loads', () => {
