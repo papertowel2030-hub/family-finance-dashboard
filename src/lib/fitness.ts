@@ -417,9 +417,25 @@ export function dailyLoads(workouts: Workout[], ownerId: OwnerId) {
 }
 
 /**
- * Light / medium / hard bands from the person's own training days (terciles), so the
- * calendar tint is relative to how *they* train rather than a made-up threshold.
- * Returns 0 for no rated load, else 1–3.
+ * Fixed day-load cut-offs (session-RPE: RPE 0–10 × minutes) for easy / medium / hard.
+ * Under 75 ≈ a short walk or a few holds; 200+ ≈ 40 min at RPE 5 or 25 min at RPE 8.
+ */
+export const DAY_LOAD_BANDS = [75, 200] as const
+
+/**
+ * Calendar band for one day's load: 0 = no rated load, 1 easy, 2 medium, 3 hard.
+ * Absolute, so a day's shade depends only on that day and never shifts as more are logged.
+ */
+export function dayLoadBand(load: number | undefined) {
+  if (!load || load <= 0) return 0
+  if (load < DAY_LOAD_BANDS[0]) return 1
+  if (load < DAY_LOAD_BANDS[1]) return 2
+  return 3
+}
+
+/**
+ * Light / medium / hard bands relative to a set of values (terciles).
+ * Returns 0 for no value, else 1–3.
  */
 export function loadBand(load: number | undefined, allDailyLoads: number[]) {
   if (!load) return 0

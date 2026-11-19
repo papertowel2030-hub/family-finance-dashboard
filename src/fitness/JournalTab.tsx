@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Moon, Pencil, TrendingUp } from 'lucide-react'
-import { addDays, dailyLoads, dayMap, dayTotals, exerciseHistory, LOAD_BASELINE_WEEKS, loadBand, weekDates, weekStart, weeklyCounts, weeklyLoads } from '../lib/fitness'
+import { addDays, dailyLoads, DAY_LOAD_BANDS, dayLoadBand, dayMap, dayTotals, exerciseHistory, LOAD_BASELINE_WEEKS, weekDates, weekStart, weeklyCounts, weeklyLoads } from '../lib/fitness'
 import { profileOrDefault } from '../db/fitnessActions'
 import type { OwnerId, TrainingKind, Workout } from '../types'
 import { endDateForMonth, formatMonth, formatShortDate, formatWeekdayDate, monthKeyFromDate, nextMonthKey, previousMonthKey } from '../utils/date'
@@ -57,7 +57,6 @@ export function JournalTab({
   const weeks = useMemo(() => weeklyCounts(workouts, person, today, WEEKS_SHOWN), [workouts, person, today])
   const loads = useMemo(() => weeklyLoads(workouts, person, today, WEEKS_SHOWN), [workouts, person, today])
   const daily = useMemo(() => dailyLoads(workouts, person), [workouts, person])
-  const dailyValues = useMemo(() => [...daily.values()], [daily])
   const [weekView, setWeekView] = useState<'sessions' | 'load'>('sessions')
 
   const exercises = useMemo(() => {
@@ -131,7 +130,7 @@ export function JournalTab({
             const trained = Boolean(info?.workouts.length)
             const future = date > today
             const gap = !trained && !info?.rest && date < today
-            const heat = trained ? loadBand(daily.get(date), dailyValues) : 0
+            const heat = trained ? dayLoadBand(daily.get(date)) : 0
             const label = trained
               ? `trained: ${info?.kinds.map((kind) => KIND_LETTER[kind]).join(' ')}${daily.get(date) ? `, load ${daily.get(date)} (${HEAT_WORD[heat]})` : ', unrated'}`
               : info?.rest
@@ -176,7 +175,7 @@ export function JournalTab({
           <li>
             <Moon size={14} /> Rest
           </li>
-          <li className="fit-legend-heat" title="Shade = how hard the day was for you (RPE × minutes)">
+          <li className="fit-legend-heat" title={`Shade = day load (RPE × minutes): easy under ${DAY_LOAD_BANDS[0]}, medium ${DAY_LOAD_BANDS[0]}–${DAY_LOAD_BANDS[1] - 1}, hard ${DAY_LOAD_BANDS[1]}+`}>
             easy
             <i className="heat-1" />
             <i className="heat-2" />
