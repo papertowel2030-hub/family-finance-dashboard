@@ -10,7 +10,7 @@ import { DayEntries, formatNumber, Sparkline, type FitnessData, type OnDeleted }
 
 const MAX_PROGRESS_CARDS = 8
 const WEEKS_SHOWN = 8
-const KIND_LETTER: Record<TrainingKind, string> = { strength: 'S', cardio: 'E', sport: 'P' }
+const KIND_LETTER: Record<TrainingKind, string> = { strength: 'R', cardio: 'C', sport: 'P' }
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 /**
@@ -144,10 +144,10 @@ export function JournalTab({
 
         <ul className="fit-legend" aria-label="Legend">
           <li>
-            <i className="mark strength">S</i> Strength
+            <i className="mark strength">R</i> Resistance
           </li>
           <li>
-            <i className="mark cardio">E</i> Endurance
+            <i className="mark cardio">C</i> Cardio
           </li>
           <li>
             <i className="mark sport">P</i> Sport

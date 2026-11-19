@@ -13,8 +13,8 @@ export const FUTURE_DAY = ['Nothing to log yet. Time travel is not a feature.', 
 export const EMPTY_MEALS = ['Nothing yet. Your fiber is feeling neglected.', 'Empty plate, empty log. Tap a chip when you eat.']
 
 export const LOGGED_TOAST: Record<TrainingKind, string> = {
-  strength: 'Strength logged. Gravity lost again.',
-  cardio: 'Endurance logged. Lungs 1, couch 0.',
+  strength: 'Resistance logged. Gravity lost again.',
+  cardio: 'Cardio logged. Lungs 1, couch 0.',
   sport: 'Sport logged. Fun counts.',
 }
 

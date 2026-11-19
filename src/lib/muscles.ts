@@ -143,10 +143,11 @@ export function muscleWork(workouts: Workout[], ownerId: OwnerId, from: string, 
     const muscles = resolve(workout)
     const inRange = workout.date >= from
     if (!muscles) {
-      if (inRange && (workout.sets?.length || workout.minutes)) unplaced.add(workout.title.trim())
+      if (inRange && (workout.sets?.length || workout.holds?.length || workout.minutes)) unplaced.add(workout.title.trim())
       continue
     }
-    const sets = workout.kind === 'strength' ? (workout.sets?.length ?? 0) : 0
+    // A hold is a set too (3 × plank = 3 sets), the usual way isometrics are counted.
+    const sets = workout.kind === 'strength' ? (workout.sets?.length ?? 0) + (workout.holds?.length ?? 0) : 0
     const minutes = workout.minutes ?? 0
     const touch = (id: MuscleId, share: number) => {
       const entry = work.get(id)

@@ -78,4 +78,11 @@ describe('muscle work', () => {
     expect(isStale('2026-11-10', '2026-11-19')).toBe(false)
     expect(isStale(null, '2026-11-19')).toBe(false)
   })
+
+  it('counts each hold as a set', () => {
+    const rows = [row('2026-11-18', { title: 'Plank', holds: [{ sec: 45, weight: 0 }, { sec: 45, weight: 0 }, { sec: 60, weight: 0 }] })]
+    const { work } = muscleWork(rows, 'moon', '2026-11-13', '2026-11-19')
+    expect(work.get('abs')?.sets).toBe(3)
+    expect(work.get('obliques')?.sets).toBe(1.5)
+  })
 })

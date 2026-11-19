@@ -206,7 +206,7 @@ export function BodyMapCard({ workouts, person, today }: { workouts: Workout[]; 
       </div>
       <div className="segmented-control fit-metrics" role="group" aria-label="Measure">
         <button type="button" className={measure === 'sets' ? 'active' : ''} aria-pressed={measure === 'sets'} onClick={() => setMeasure('sets')}>
-          Strength sets
+          Resistance sets
         </button>
         <button type="button" className={measure === 'minutes' ? 'active' : ''} aria-pressed={measure === 'minutes'} onClick={() => setMeasure('minutes')}>
           All minutes
@@ -273,7 +273,7 @@ export function BodyMapCard({ workouts, person, today }: { workouts: Workout[]; 
         </li>
       </ul>
       <p className="small-label fit-body-note">
-        Helpers count half. {measure === 'sets' ? 'Around 10+ sets a week per muscle is where studies see the most growth (Schoenfeld et al. 2017).' : 'Endurance and sport count by minutes.'}
+        Helpers count half. {measure === 'sets' ? 'Around 10+ sets a week per muscle is where studies see the most growth (Schoenfeld et al. 2017).' : 'Cardio and sport count by minutes.'}
         {unplaced.length ? ` Not placed yet: ${unplaced.slice(0, 4).join(', ')}${unplaced.length > 4 ? '…' : ''} — edit one and pick its muscles.` : ''}
       </p>
     </section>

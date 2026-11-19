@@ -121,6 +121,14 @@ export interface StrengthSet {
   weight: number
 }
 
+/** One isometric hold (plank, wall sit…): seconds held, plus any added load. */
+export interface HoldSet {
+  /** Seconds held. */
+  sec: number
+  /** Added weight in kg; 0 means bodyweight. */
+  weight: number
+}
+
 export type SegmentType = 'warmup' | 'work' | 'recover' | 'cooldown'
 
 /** One stretch of an interval session at a steady pace (e.g. a 30 s sprint at 14 km/h). */
@@ -167,6 +175,8 @@ export interface Workout extends SyncRecord {
   /** Exercise name (strength), cardio type, or sport/activity. */
   title: string
   sets?: StrengthSet[]
+  /** Isometric holds (resistance only), kept apart from rep sets so 1RM and volume stay honest. */
+  holds?: HoldSet[]
   /** Duration in minutes; may be fractional (25:30 is stored as 25.5). */
   minutes?: number
   /** Kilometres. */

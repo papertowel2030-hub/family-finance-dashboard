@@ -9,6 +9,12 @@ import {
   estimateOneRepMax,
   exerciseHistory,
   exerciseList,
+  holdLabel,
+  holdText,
+  isHoldName,
+  lastSessionHolds,
+  paceText,
+  parseHoldSeconds,
   metricsFor,
   progressSeries,
   rangeStart,
@@ -412,5 +418,44 @@ describe('progress over time', () => {
     ])
     expect(rangeStart('1M', '2026-11-19')).toBe('2026-10-20')
     expect(rangeStart('All', '2026-11-19')).toBeUndefined()
+  })
+})
+
+describe('holds and pace', () => {
+  it('spots isometric holds by name at word starts only', () => {
+    expect(['Plank', 'Side plank', 'Wall sit', 'Dead hang', 'Hollow hold', 'L-sit', 'Glute bridge hold'].every(isHoldName)).toBe(true)
+    expect(['Squat', 'Hanging leg raise', 'Run', 'Bridge'].some(isHoldName)).toBe(false)
+  })
+
+  it('reads hold times as seconds or min:sec and writes them back the same way', () => {
+    expect(parseHoldSeconds('45')).toBe(45)
+    expect(parseHoldSeconds('1:30')).toBe(90)
+    expect(parseHoldSeconds('')).toBeUndefined()
+    expect(parseHoldSeconds('1:75')).toBeNaN()
+    expect(parseHoldSeconds('abc')).toBeNaN()
+    expect([45, 90, 600].map(holdText)).toEqual(['45', '1:30', '10:00'])
+    expect([45, 90].map(holdLabel)).toEqual(['45 s', '1:30'])
+  })
+
+  it('charts the longest and total hold per day, and offers hold metrics for hold exercises', () => {
+    const plank = (date: string, secs: number[], extra: Partial<Workout> = {}) =>
+      workout(date, { kind: 'strength', title: 'Plank', minutes: undefined, holds: secs.map((sec) => ({ sec, weight: 0 })), ...extra })
+    const rows = [plank('2026-11-01', [30, 45]), plank('2026-11-08', [60, 60, 50]), plank('2026-11-08', [20], { ownerId: 'alena' })]
+    expect(metricsFor('strength', rows)).toEqual(['longestHold', 'holdTime', 'load'])
+    expect(progressSeries(rows, 'moon', 'strength', 'plank', 'longestHold')).toEqual([
+      { date: '2026-11-01', value: 45 },
+      { date: '2026-11-08', value: 60 },
+    ])
+    expect(progressSeries(rows, 'moon', 'strength', 'Plank', 'holdTime').map((point) => point.value)).toEqual([75, 170])
+    expect(lastSessionHolds(rows, 'moon', 'plank')).toEqual([{ sec: 60, weight: 0 }, { sec: 60, weight: 0 }, { sec: 50, weight: 0 }])
+    // Holds never feed est. 1RM, so a weighted plank can't fake a squat-sized max.
+    expect(progressSeries([plank('2026-11-09', [40], { holds: [{ sec: 40, weight: 20 }] })], 'moon', 'strength', 'Plank', 'oneRepMax')).toEqual([])
+  })
+
+  it('gives runners pace and everyone else speed, only with time and distance', () => {
+    expect(paceText('Run', 27.5, 5)).toBe('5:30 /km')
+    expect(paceText('Evening walk', 60, 5)).toBe('12:00 /km')
+    expect(paceText('Cycle', 60, 24)).toBe('24 km/h')
+    expect(paceText('Run', 30, undefined)).toBeNull()
   })
 })

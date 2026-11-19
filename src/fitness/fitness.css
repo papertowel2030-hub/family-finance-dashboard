@@ -2211,3 +2211,32 @@ g[role='button'] {
 .fit-body-note {
   margin: 0;
 }
+
+/* Kind hint under the switcher, the cardio pace line, and the "move to hold" card. */
+.fit-kind-hint {
+  margin: -4px 0 0;
+}
+
+.fit-pace {
+  margin: -4px 0 0;
+  font-weight: 700;
+}
+
+.fit-move {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+}
+
+.fit-move p {
+  margin: 0;
+}
+
+.fit-move .ghost-button {
+  white-space: normal;
+  text-align: left;
+}
