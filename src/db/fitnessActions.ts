@@ -1,5 +1,5 @@
 import { db } from './database'
-import type { FitnessGoal, FitnessProfile, GoalArea, IntervalSegment, Meal, MuscleSet, OwnerId, StrengthSet, TrainingKind, Workout } from '../types'
+import type { FitnessGoal, FitnessProfile, GoalArea, HoldSet, IntervalSegment, Meal, MuscleSet, OwnerId, StrengthSet, TrainingKind, Workout } from '../types'
 import { cleanMuscles } from '../lib/muscles'
 import { DEFAULT_TARGETS } from '../lib/fitness'
 import { makeId, nowIso } from '../utils/id'
@@ -28,6 +28,7 @@ export interface WorkoutInput {
   kind: TrainingKind
   title: string
   sets?: StrengthSet[]
+  holds?: HoldSet[]
   minutes?: number
   distance?: number
   effort?: number
@@ -56,6 +57,18 @@ function cleanSegments(segments: IntervalSegment[] | undefined) {
   })
 }
 
+export const MAX_HOLDS = 30
+
+function cleanHolds(holds: HoldSet[] | undefined) {
+  const kept = (holds ?? []).filter((hold) => hold.sec > 0)
+  if (!kept.length) return undefined
+  if (kept.length > MAX_HOLDS) throw new Error(`Up to ${MAX_HOLDS} holds, please.`)
+  return kept.map((hold) => ({
+    sec: Math.round(cleanNumber(hold.sec, 'Hold time', { min: 1, max: 3600 }) ?? 0),
+    weight: cleanNumber(hold.weight, 'Weight', { min: 0, max: 500 }) ?? 0,
+  }))
+}
+
 /** Title given to a one-tap "I trained" entry. */
 export const QUICK_TITLES: Record<TrainingKind, string> = { strength: 'Strength', cardio: 'Endurance', sport: 'Sport' }
 export const REST_TITLE = 'Rest'
@@ -66,6 +79,7 @@ export function isBareMarker(workout: Workout) {
     workout.kind !== 'rest' &&
     workout.title === QUICK_TITLES[workout.kind] &&
     !workout.sets?.length &&
+    !workout.holds?.length &&
     !workout.minutes &&
     !workout.distance &&
     !workout.effort &&
@@ -77,15 +91,17 @@ export function isBareMarker(workout: Workout) {
   )
 }
 
-const isBare = (workout: Workout) => !workout.sets?.length && !workout.minutes
+const isBare = (workout: Workout) => !workout.sets?.length && !workout.holds?.length && !workout.minutes
 
 function buildWorkoutFields(input: WorkoutInput, { allowBare = false } = {}) {
   const title = input.title.trim()
   if (!title) throw new Error('Give the exercise or activity a name.')
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new Error('Pick a valid date.')
 
-  const sets = input.kind === 'strength' ? (input.sets ?? []).filter((set) => set.reps > 0) : undefined
-  if (input.kind === 'strength' && !sets?.length && !allowBare) throw new Error('Add at least one set with reps.')
+  const holds = input.kind === 'strength' ? cleanHolds(input.holds) : undefined
+  const keptSets = input.kind === 'strength' ? (input.sets ?? []).filter((set) => set.reps > 0) : undefined
+  const sets = keptSets?.length || !holds ? keptSets : undefined
+  if (input.kind === 'strength' && !sets?.length && !holds && !allowBare) throw new Error('Add at least one set with reps, or a hold.')
   sets?.forEach((set) => {
     cleanNumber(set.reps, 'Reps', { min: 1, max: 1000 })
     cleanNumber(set.weight, 'Weight', { min: 0, max: 2000 })
@@ -107,6 +123,7 @@ function buildWorkoutFields(input: WorkoutInput, { allowBare = false } = {}) {
     kind: input.kind,
     title,
     sets,
+    holds,
     minutes: input.kind === 'strength' ? minutes || undefined : minutes,
     distance,
     effort: cleanNumber(input.effort, 'Effort', { min: 1, max: 5 }),

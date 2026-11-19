@@ -353,3 +353,38 @@ describe('muscles on entries', () => {
     expect((await db.workouts.get(plain.id))?.muscles).toBeUndefined()
   })
 })
+
+describe('holds', () => {
+  const base = { ownerId: 'moon' as const, date: '2026-11-19', kind: 'strength' as const, title: 'Plank', realmId: REALM }
+
+  it('saves holds without rep sets, and rejects empty or silly holds', async () => {
+    const saved = await addWorkout({ ...base, holds: [{ sec: 45, weight: 0 }, { sec: 0, weight: 0 }, { sec: 60.4, weight: 10 }] })
+    expect(saved.holds).toEqual([{ sec: 45, weight: 0 }, { sec: 60, weight: 10 }])
+    expect(saved.sets).toBeUndefined()
+    await expect(addWorkout({ ...base, holds: [] })).rejects.toThrow(/set with reps, or a hold/)
+    await expect(addWorkout({ ...base, holds: [{ sec: 4000, weight: 0 }] })).rejects.toThrow(/Hold time/)
+    const cardio = await addWorkout({ ...base, kind: 'cardio', title: 'Run', minutes: 30, holds: [{ sec: 45, weight: 0 }] })
+    expect(cardio.holds).toBeUndefined()
+    expect(isBareMarker({ id: 'x', ...base, title: 'Strength', holds: [{ sec: 30, weight: 0 }], createdAt: stamp, updatedAt: stamp })).toBe(false)
+  })
+
+  it('moves a plank logged as cardio minutes into a hold, keeping its rating, and undo restores it', async () => {
+    const old = await addWorkout({ ...base, kind: 'cardio', minutes: 1.5, rpe: 6, note: 'shaky' })
+    const before = await db.workouts.get(old.id)
+    await updateWorkout(old.id, { ...base, holds: [{ sec: 90, weight: 0 }], minutes: 1.5, rpe: 6, note: 'shaky' })
+    const moved = await db.workouts.get(old.id)
+    expect(moved).toMatchObject({ kind: 'strength', holds: [{ sec: 90, weight: 0 }], minutes: 1.5, rpe: 6, note: 'shaky', createdAt: old.createdAt })
+    expect(moved?.distance).toBeUndefined()
+    await restoreWorkout(before!)
+    expect(await db.workouts.get(old.id)).toEqual(before)
+  })
+
+  it('round-trips holds through a backup', async () => {
+    await addWorkout({ ...base, holds: [{ sec: 45, weight: 5 }] })
+    const parsed = parseBackup(JSON.stringify(await exportBackup(REALM)))
+    await db.workouts.clear()
+    await mergeBackup(parsed, REALM)
+    const [row] = await db.workouts.toArray()
+    expect(row.holds).toEqual([{ sec: 45, weight: 5 }])
+  })
+})

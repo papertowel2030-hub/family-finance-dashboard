@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { AlertTriangle, Check, Moon, Trash2 } from 'lucide-react'
-import { deleteWorkout, restoreWorkout } from '../db/fitnessActions'
-import { formatDuration, formatSeconds, intervalSummary, sessionLoad, type DayInfo, type WeekDay } from '../lib/fitness'
+import { deleteWorkout, QUICK_TITLES, restoreWorkout } from '../db/fitnessActions'
+import { formatDuration, formatSeconds, holdLabel, intervalSummary, paceText, sessionLoad, type DayInfo, type WeekDay } from '../lib/fitness'
 import type { FitnessGoal, FitnessProfile, Meal, OwnerId, Workout } from '../types'
 import { REST_ENTRY_NOTE } from './copy'
 
@@ -167,13 +167,23 @@ export function describeWorkout(workout: Workout) {
       const grouped = sets.map((set) => `${set.reps}×${set.weight ? formatNumber(set.weight) : 'BW'}`).join(', ')
       parts.push(`${sets.length} set${sets.length === 1 ? '' : 's'} · ${grouped}${sets.some((set) => set.weight) ? ' kg' : ''}`)
     }
+    const holds = workout.holds ?? []
+    if (holds.length) {
+      const times = holds.map((hold) => `${holdLabel(hold.sec)}${hold.weight ? ` +${formatNumber(hold.weight)} kg` : ''}`).join(', ')
+      parts.push(`${holds.length} hold${holds.length === 1 ? '' : 's'} · ${times}`)
+    }
   }
   if (workout.segments?.length) {
     const summary = intervalSummary(workout.segments)
     parts.push(`${summary.rounds} × ${summary.workPartSec ? formatSeconds(summary.workPartSec) : '—'}${summary.topWorkSpeed ? ` @ ${formatNumber(summary.topWorkSpeed)} km/h` : ''}`)
   }
-  if (workout.minutes) parts.push(workout.segments?.length ? `total ${formatDuration(workout.minutes)}` : formatMinutes(workout.minutes))
+  // A moved plank keeps its time as session minutes; don't print 1:30 twice.
+  const holdSec = (workout.holds ?? []).reduce((sum, hold) => sum + hold.sec, 0)
+  const sameAsHolds = holdSec > 0 && workout.minutes !== undefined && Math.abs(workout.minutes * 60 - holdSec) < 1
+  if (workout.minutes && !sameAsHolds) parts.push(workout.segments?.length ? `total ${formatDuration(workout.minutes)}` : formatMinutes(workout.minutes))
   if (workout.distance) parts.push(`${formatNumber(workout.distance)} km`)
+  const pace = workout.kind === 'cardio' && !workout.segments?.length ? paceText(workout.title, workout.minutes, workout.distance) : null
+  if (pace) parts.push(pace)
   return parts.join(' · ') || 'Session logged'
 }
 
@@ -189,8 +199,22 @@ export function intensityText(workout: Workout) {
   return describeIntensity(workout) ?? (workout.effort ? `effort ${workout.effort}/5 (old scale) · tap to rate 0–10` : 'Unrated · tap to rate')
 }
 
-const KIND_LABEL: Record<Workout['kind'], string> = { strength: 'Strength', cardio: 'Endurance', sport: 'Sport', rest: 'Rest' }
+/**
+ * Kinds named the way WHO/ACSM group exercise: resistance (muscle-strengthening, incl. holds),
+ * cardio (aerobic), and sport. Stored ids stay 'strength'/'cardio' so old data and phones keep working.
+ */
+const KIND_LABEL: Record<Workout['kind'], string> = { strength: 'Resistance', cardio: 'Cardio', sport: 'Sport', rest: 'Rest' }
 export const kindLabel = (kind: Workout['kind']) => KIND_LABEL[kind]
+
+export const KIND_HINT: Record<Exclude<Workout['kind'], 'rest'>, string> = {
+  strength: 'Weights, bodyweight, holds',
+  cardio: 'Run, cycle, swim, row',
+  sport: 'Games, classes, yoga',
+}
+
+/** One-tap entries are stored as "Strength"/"Endurance"; show them under today's names. */
+export const displayTitle = (workout: Workout) =>
+  workout.kind !== 'rest' && workout.title === QUICK_TITLES[workout.kind] ? KIND_LABEL[workout.kind] : workout.title
 
 /** What happened on one day: every workout (tap to edit) or the rest marker (tap to remove). */
 export function DayEntries({
@@ -213,7 +237,7 @@ export function DayEntries({
             <span className={`type-chip fit-kind ${workout.kind}`}>{kindLabel(workout.kind)}</span>
             <span className="fit-history-main">
               <strong>
-                {workout.title}
+                {displayTitle(workout)}
                 {workout.niggle ? <AlertTriangle size={14} className="fit-niggle" aria-label="Something hurt" /> : null}
               </strong>
               <small>{describeWorkout(workout)}</small>

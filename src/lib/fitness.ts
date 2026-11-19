@@ -222,6 +222,49 @@ export function lastSessionSets(workouts: Workout[], ownerId: OwnerId, title: st
 }
 
 /** Distinct exercise/activity names the person has used for a kind, most recent first, for autocomplete. */
+/** The latest holds logged for an exercise, for "Repeat last". */
+export function lastSessionHolds(workouts: Workout[], ownerId: OwnerId, title: string) {
+  const wanted = title.trim().toLowerCase()
+  const latest = workouts
+    .filter((workout) => workout.ownerId === ownerId && workout.kind === 'strength' && workout.title.trim().toLowerCase() === wanted && workout.holds?.length)
+    .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))[0]
+  return latest?.holds ?? null
+}
+
+/**
+ * Isometric exercises, held rather than repeated, so the form opens in Hold mode for them.
+ * Matches at word starts ("Side plank" yes, "Hanging leg raise" no). Only a starting guess:
+ * the Reps | Hold switch always wins.
+ */
+const HOLD_WORDS = ['plank', 'wall sit', 'hollow hold', 'hollow body', 'dead hang', 'bar hang', 'l-sit', 'l sit', 'bridge hold', 'superman hold', 'isometric', 'iso hold']
+const HOLD_PATTERN = new RegExp(`(^|[^a-z])(${HOLD_WORDS.join('|')})`, 'i')
+export const isHoldName = (title: string) => HOLD_PATTERN.test(title.trim())
+
+/** "45" → 45 s, "1:30" → 90 s, "1,5" style decimals rounded. Blank → undefined; unreadable → NaN. */
+export function parseHoldSeconds(text: string): number | undefined {
+  const trimmed = text.trim()
+  if (!trimmed) return undefined
+  const match = /^(\d+):([0-5]?\d)$/.exec(trimmed)
+  if (match) return Number(match[1]) * 60 + Number(match[2])
+  const value = Number(trimmed.replace(',', '.'))
+  return Number.isFinite(value) && value >= 0 ? Math.round(value) : Number.NaN
+}
+
+/** 45 → "45", 90 → "1:30": short holds read as seconds, long ones as a clock. */
+export const holdText = (sec: number) => (sec < 60 ? String(sec) : formatDuration(sec / 60))
+
+/** For reading: "45 s", "1:30". */
+export const holdLabel = (sec: number) => (sec < 60 ? `${sec} s` : formatDuration(sec / 60))
+
+const PACE_PATTERN = /(^|[^a-z])(run|jog|walk|hike|trail)/i
+
+/** "5:30 /km" for runs and walks (how runners read it), "24 km/h" for the rest. Null without time and distance. */
+export function paceText(title: string, minutes: number | undefined, distance: number | undefined) {
+  if (!minutes || !distance) return null
+  if (PACE_PATTERN.test(title)) return `${formatDuration(minutes / distance)} /km`
+  return `${Math.round((distance / (minutes / 60)) * 10) / 10} km/h`
+}
+
 export function knownTitles(workouts: Workout[], ownerId: OwnerId, kind: Workout['kind']) {
   const seen = new Map<string, string>()
   workouts
@@ -532,6 +575,8 @@ export type ProgressMetric =
   | 'workSpeed'
   | 'rounds'
   | 'time'
+  | 'longestHold'
+  | 'holdTime'
   | 'load'
   | 'rpe'
 
@@ -551,6 +596,8 @@ export const METRICS: Record<ProgressMetric, MetricInfo> = {
   workSpeed: { id: 'workSpeed', label: 'Work speed', unit: 'km/h' },
   rounds: { id: 'rounds', label: 'Rounds', unit: 'rounds' },
   time: { id: 'time', label: 'Time', unit: 'min' },
+  longestHold: { id: 'longestHold', label: 'Longest hold', unit: 's' },
+  holdTime: { id: 'holdTime', label: 'Total hold', unit: 's' },
   load: { id: 'load', label: 'Load', unit: 'AU' },
   rpe: { id: 'rpe', label: 'How hard', unit: '/10' },
 }
@@ -585,7 +632,12 @@ export function exerciseList(workouts: Workout[], ownerId: OwnerId, skip: string
 export function metricsFor(kind: TrainingKind, workouts: Workout[] = []): ProgressMetric[] {
   if (kind === 'strength') {
     const weighted = workouts.some((workout) => workout.sets?.some((set) => set.weight > 0))
-    return weighted ? ['oneRepMax', 'topWeight', 'volume', 'bestReps', 'load'] : ['bestReps', 'load', 'time']
+    const reps = workouts.some((workout) => workout.sets?.length)
+    const holds = workouts.some((workout) => workout.holds?.length)
+    if (holds && !reps) return ['longestHold', 'holdTime', 'load']
+    const base: ProgressMetric[] = weighted ? ['oneRepMax', 'topWeight', 'volume', 'bestReps', 'load'] : ['bestReps', 'load', 'time']
+    // Once an exercise has holds, they lead: old "1 rep" planks shouldn't open the chart.
+    return holds ? ['longestHold', 'holdTime', ...base] : base
   }
   if (kind === 'cardio') {
     const intervals = workouts.some((workout) => workout.segments?.length)
@@ -636,6 +688,8 @@ export function progressSeries(workouts: Workout[], ownerId: OwnerId, kind: Trai
     if (metric === 'distance') value = sum(day.map((workout) => workout.distance))
     else if (metric === 'time') value = sum(day.map((workout) => workout.minutes))
     else if (metric === 'load') value = sum(day.map(sessionLoad))
+    else if (metric === 'longestHold') value = max(day.flatMap((workout) => (workout.holds ?? []).map((hold) => hold.sec)))
+    else if (metric === 'holdTime') value = sum(day.flatMap((workout) => (workout.holds ?? []).map((hold) => hold.sec)))
     else if (metric === 'rpe') value = max(day.map((workout) => workout.rpe))
     else if (metric === 'workSpeed') value = max(day.map((workout) => (workout.segments?.length ? intervalSummary(workout.segments).topWorkSpeed : null)))
     else if (metric === 'rounds') value = max(day.map((workout) => (workout.segments?.length ? intervalSummary(workout.segments).rounds : null)))
