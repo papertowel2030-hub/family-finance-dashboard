@@ -5,13 +5,13 @@ import { profileOrDefault } from '../db/fitnessActions'
 import type { OwnerId, TrainingKind, Workout } from '../types'
 import { endDateForMonth, formatMonth, formatShortDate, formatWeekdayDate, monthKeyFromDate, nextMonthKey, previousMonthKey } from '../utils/date'
 import { quip } from '../utils/quip'
-import { EMPTY_DAY, EMPTY_MONTH, FUTURE_DAY, PROGRESS_HINT } from './copy'
-import { DayEntries, formatNumber, Sparkline, type FitnessData, type OnDeleted } from './shared'
+import { EMPTY_DAY, EMPTY_MONTH, FUTURE_DAY, NO_GAIN_YET } from './copy'
+import { DayEntries, formatNumber, type FitnessData, type OnDeleted } from './shared'
 
-const MAX_PROGRESS_CARDS = 8
 const WEEKS_SHOWN = 8
 const KIND_LETTER: Record<TrainingKind, string> = { strength: 'R', cardio: 'C', sport: 'P' }
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const HEAT_WORD = ['unrated', 'easy', 'medium', 'hard']
 
 /**
  * The visual page: a month calendar where every day reads at a glance (what you did, or rest),
@@ -43,13 +43,16 @@ export function JournalTab({
   const monthStart = `${month}-01`
   const monthEnd = endDateForMonth(month)
   const gridStart = weekStart(monthStart)
-  const gridEnd = weekDates(monthEnd)[6]
+  // Current month: stop after this week, so empty future rows don't push the day detail off screen.
+  const lastShown = month === monthKeyFromDate(today) && today < monthEnd ? today : monthEnd
+  const gridEnd = weekDates(lastShown)[6]
   const gridDates: string[] = []
   for (let cursor = gridStart; cursor <= gridEnd; cursor = addDays(cursor, 1)) gridDates.push(cursor)
 
   const monthDates = gridDates.filter((date) => date >= monthStart && date <= monthEnd)
   const trainedCount = monthDates.filter((date) => days.get(date)?.workouts.length).length
   const restCount = monthDates.filter((date) => days.get(date)?.rest).length
+  const gapCount = monthDates.filter((date) => date < today && !days.get(date)?.workouts.length && !days.get(date)?.rest).length
 
   const weeks = useMemo(() => weeklyCounts(workouts, person, today, WEEKS_SHOWN), [workouts, person, today])
   const loads = useMemo(() => weeklyLoads(workouts, person, today, WEEKS_SHOWN), [workouts, person, today])
@@ -69,8 +72,19 @@ export function JournalTab({
     return [...titles.values()]
       .map((title) => ({ title, history: exerciseHistory(mine, person, title) }))
       .filter(({ history }) => history.some((point) => point.bestReps > 0))
-      .slice(0, MAX_PROGRESS_CARDS)
   }, [mine, person])
+
+  // One line instead of a card grid: the Progress tab owns the charts.
+  const topGain = useMemo(() => {
+    let best: { title: string; gain: number; since: string } | null = null
+    for (const { title, history } of exercises) {
+      if (history.length < 2) continue
+      const metric = (point: (typeof history)[number]) => point.oneRepMax ?? point.bestWeight
+      const gain = metric(history[history.length - 1]) - metric(history[0])
+      if (gain > 0 && (!best || gain > best.gain)) best = { title, gain, since: history[0].date }
+    }
+    return best
+  }, [exercises])
 
   const selectedInfo = days.get(selected)
   const totals = dayTotals(meals, person, selected)
@@ -90,7 +104,15 @@ export function JournalTab({
           </button>
           <div>
             <h2>{formatMonth(month)}</h2>
-            <p className="small-label">{trainedCount + restCount ? `${trainedCount} trained · ${restCount} rest` : quip(EMPTY_MONTH, month)}</p>
+            {trainedCount + restCount ? (
+              <p className="fit-cal-summary">
+                {trainedCount ? <span className="trained">{trainedCount} trained</span> : null}
+                {restCount ? <span className="rest">{restCount} rest</span> : null}
+                {gapCount ? <span className="gap">{gapCount} {gapCount === 1 ? 'gap' : 'gaps'}</span> : null}
+              </p>
+            ) : (
+              <p className="small-label">{quip(EMPTY_MONTH, month)}</p>
+            )}
           </div>
           <button type="button" className="icon-button" aria-label="Next month" disabled={month >= monthKeyFromDate(today)} onClick={() => setMonth(nextMonthKey(month))}>
             <ChevronRight size={20} />
@@ -108,8 +130,10 @@ export function JournalTab({
             const info = days.get(date)
             const trained = Boolean(info?.workouts.length)
             const future = date > today
+            const gap = !trained && !info?.rest && date < today
+            const heat = trained ? loadBand(daily.get(date), dailyValues) : 0
             const label = trained
-              ? `trained: ${info?.kinds.map((kind) => KIND_LETTER[kind]).join(' ')}${daily.get(date) ? `, load ${daily.get(date)}` : ''}`
+              ? `trained: ${info?.kinds.map((kind) => KIND_LETTER[kind]).join(' ')}${daily.get(date) ? `, load ${daily.get(date)} (${HEAT_WORD[heat]})` : ', unrated'}`
               : info?.rest
                 ? 'rest day'
                 : future
@@ -120,15 +144,12 @@ export function JournalTab({
                 key={date}
                 type="button"
                 role="gridcell"
-                className={`fit-cal-day${trained ? ' trained' : ''}${info?.rest ? ' rest' : ''}${future ? ' future' : ''}${date === today ? ' today' : ''}${date === selected ? ' selected' : ''}`}
+                className={`fit-cal-day${trained ? ` trained heat-${heat}` : ''}${info?.rest ? ' rest' : ''}${gap ? ' gap' : ''}${future ? ' future' : ''}${date === today ? ' today' : ''}${date === selected ? ' selected' : ''}`}
                 aria-label={`${formatWeekdayDate(date)}, ${label}`}
                 aria-pressed={date === selected}
                 onClick={() => pick(date)}
               >
                 <span className="fit-cal-num">{Number(date.slice(8))}</span>
-                {trained && daily.get(date) ? (
-                  <span className={`fit-cal-load band-${loadBand(daily.get(date), dailyValues)}`} aria-hidden="true" title={`Load ${formatNumber(daily.get(date) ?? 0)}`} />
-                ) : null}
                 <span className="fit-cal-marks">
                   {info?.kinds.map((kind) => (
                     <i key={kind} className={`mark ${kind}`}>
@@ -154,6 +175,16 @@ export function JournalTab({
           </li>
           <li>
             <Moon size={14} /> Rest
+          </li>
+          <li className="fit-legend-heat" title="Shade = how hard the day was for you (RPE × minutes)">
+            easy
+            <i className="heat-1" />
+            <i className="heat-2" />
+            <i className="heat-3" />
+            hard
+          </li>
+          <li>
+            <i className="fit-legend-gap" /> Not logged
           </li>
         </ul>
       </section>
@@ -195,39 +226,21 @@ export function JournalTab({
       </section>
 
       {exercises.length ? (
-        <section className="panel">
-          <div className="section-header compact">
-            <h2>Strength progress</h2>
-            <button type="button" className="ghost-button" onClick={onOpenProgress}>
-              See all →
-            </button>
-          </div>
-          {exercises.some(({ history }) => history.length < 2) ? <p className="small-label">{PROGRESS_HINT}</p> : null}
-          <div className="fit-progress-grid">
-            {exercises.map(({ title, history }) => {
-              const latest = history[history.length - 1]
-              const first = history[0]
-              const metric = (point: (typeof history)[number]) => point.oneRepMax ?? point.bestWeight
-              const gain = latest && first && history.length > 1 ? metric(latest) - metric(first) : 0
-              return (
-                <article key={title} className="fit-progress-card">
-                  <h3>{title}</h3>
-                  <p className="small-label">
-                    Best {latest ? `${formatNumber(latest.bestWeight)} kg × ${latest.bestReps}` : '—'}
-                    {latest?.oneRepMax ? ` · est. 1RM ${formatNumber(latest.oneRepMax)} kg` : ''}
-                  </p>
-                  {history.length > 1 ? <Sparkline values={history.slice(-10).map(metric)} label={`${title} progress`} /> : null}
-                  {gain ? (
-                    <p className={`fit-gain${gain > 0 ? ' up' : ''}`}>
-                      <TrendingUp size={14} /> {gain > 0 ? '+' : ''}
-                      {formatNumber(gain)} kg since {formatShortDate(first.date)}
-                    </p>
-                  ) : null}
-                </article>
-              )
-            })}
-          </div>
-        </section>
+        <button type="button" className="panel fit-gain-teaser" onClick={onOpenProgress}>
+          <TrendingUp size={18} aria-hidden="true" />
+          <span>
+            {topGain ? (
+              <>
+                <b>{topGain.title}</b> +{formatNumber(topGain.gain)} kg since {formatShortDate(topGain.since)}
+              </>
+            ) : (
+              <>
+                {exercises.length} {exercises.length === 1 ? 'lift' : 'lifts'} tracked · {quip(NO_GAIN_YET, `${today}${person}`)}
+              </>
+            )}
+          </span>
+          <ChevronRight size={18} aria-hidden="true" />
+        </button>
       ) : null}
     </div>
   )
@@ -244,7 +257,7 @@ function SessionWeeks({ weeks, target, today }: { weeks: ReturnType<typeof weekl
               <i style={{ height: `${Math.min(week.sessions, 7) * (100 / 7)}%` }} />
               <b style={{ bottom: `${Math.min(target, 7) * (100 / 7)}%` }} />
             </div>
-            <small>{week.start.slice(8)}/{week.start.slice(5, 7)}</small>
+            <small>{week.start === weekStart(today) ? 'now' : `${week.start.slice(8)}/${week.start.slice(5, 7)}`}</small>
             <span className="fit-week-rest" title={`${week.rests} rest days`}>
               {week.rests ? (
                 <>
@@ -258,7 +271,20 @@ function SessionWeeks({ weeks, target, today }: { weeks: ReturnType<typeof weekl
           </div>
         ))}
       </div>
-      <p className="small-label">Dashed line: your target of {target}/week.</p>
+      <ul className="fit-legend fit-week-key" aria-label="Chart key">
+        <li>
+          <i className="key-hit" /> Hit target
+        </li>
+        <li>
+          <i className="key-short" /> Short
+        </li>
+        <li>
+          <i className="key-now" /> In progress
+        </li>
+        <li>
+          <i className="key-target" /> Target {target}/wk
+        </li>
+      </ul>
     </>
   )
 }
@@ -286,7 +312,7 @@ function LoadWeeks({ loads, today }: { loads: ReturnType<typeof weeklyLoads>; to
               </span>
               {average ? <b style={{ bottom: `${(average / max) * 100}%` }} /> : null}
             </div>
-            <small>{week.start.slice(8)}/{week.start.slice(5, 7)}</small>
+            <small>{week.start === weekStart(today) ? 'now' : `${week.start.slice(8)}/${week.start.slice(5, 7)}`}</small>
             <span className="fit-week-rest" title={`${week.unrated} unrated`}>
               {week.unrated ? `+${week.unrated}?` : ''}
             </span>

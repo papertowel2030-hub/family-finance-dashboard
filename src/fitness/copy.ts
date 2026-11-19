@@ -23,6 +23,6 @@ export const REST_REMOVED_TOAST = 'Rest day removed. Back to work.'
 
 export const REST_ENTRY_NOTE = 'Muscles rebuild while you sit. Science says so.'
 
-export const PROGRESS_HINT = 'Lift it again to see a line.'
+export const NO_GAIN_YET = ['gains loading…', 'lift it again to see a trend', 'patience, the bar is watching']
 
 export const EMPTY_MONTH = ['A blank month. Bold choice.', 'Nothing logged this month. Yet.']
