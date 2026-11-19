@@ -411,31 +411,6 @@
   margin: 0 0 14px;
 }
 
-.fit-progress-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.fit-progress-card {
-  display: grid;
-  gap: 6px;
-  align-content: start;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.42);
-}
-
-.fit-progress-card h3 {
-  margin: 0;
-  font-size: 1rem;
-}
-
-.fit-progress-card p {
-  margin: 0;
-}
-
 .fit-spark {
   display: block;
   max-width: 100%;
@@ -455,19 +430,6 @@
 .fit-spark-empty {
   color: var(--muted);
   font-size: 0.8rem;
-}
-
-.fit-gain {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--muted);
-  font-size: 0.82rem;
-  font-weight: 800;
-}
-
-.fit-gain.up {
-  color: #2f5538;
 }
 
 .fit-history {
@@ -657,7 +619,6 @@
 }
 
 @media (max-width: 620px) {
-  .fit-progress-grid,
   .fit-form-grid,
   .fit-goal-grid {
     grid-template-columns: 1fr;
@@ -1046,14 +1007,52 @@ button.fit-dot {
   border-color: rgba(79, 122, 88, 0.45);
 }
 
+/* Heat shade: darker green = harder day for *you* (load band vs your own days). heat-0 = unrated. */
+.fit-cal-day.heat-0 {
+  background: #edf3ea;
+  border-style: solid;
+}
+
+.fit-cal-day.heat-1,
+.fit-legend-heat .heat-1 {
+  background: #cfe0ca;
+}
+
+.fit-cal-day.heat-2,
+.fit-legend-heat .heat-2 {
+  background: #9dbf9f;
+  border-color: rgba(79, 122, 88, 0.6);
+}
+
+.fit-cal-day.heat-3,
+.fit-legend-heat .heat-3 {
+  background: #3f6b48;
+  border-color: #3f6b48;
+  color: #fffaf2;
+}
+
+.fit-cal-day.heat-3 .mark {
+  box-shadow: 0 0 0 1.5px #fffaf2;
+}
+
 .fit-cal-day.rest {
-  background: #e6e3f0;
-  border-color: rgba(122, 118, 173, 0.45);
-  color: #4d4a7a;
+  background: var(--blue-soft);
+  border-color: rgba(47, 111, 159, 0.4);
+  color: #24557a;
+}
+
+/* A past day with nothing logged: a hole, not a blank. */
+.fit-cal-day.gap {
+  background: transparent;
+  border: 1.5px dashed #cbbfae;
+  color: var(--muted);
 }
 
 .fit-cal-day.future {
-  opacity: 0.45;
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  opacity: 0.55;
 }
 
 .fit-cal-day.today .fit-cal-num {
@@ -1131,6 +1130,91 @@ button.fit-dot {
   margin: 12px 0 0;
 }
 
+/* Month summary chips under the month name. */
+.fit-cal-summary {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 0;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.fit-cal-summary span {
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.fit-cal-summary .trained {
+  background: var(--leaf-soft);
+  color: #2f5538;
+}
+
+.fit-cal-summary .rest {
+  background: var(--blue-soft);
+  color: #24557a;
+}
+
+.fit-cal-summary .gap {
+  border: 1px dashed #cbbfae;
+  color: var(--muted);
+}
+
+.fit-legend-heat i,
+.fit-legend-gap,
+.fit-week-key i {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+}
+
+.fit-legend-heat {
+  gap: 3px !important;
+}
+
+.fit-legend-heat i:first-of-type {
+  margin-left: 3px;
+}
+
+.fit-legend-heat i:last-of-type {
+  margin-right: 3px;
+}
+
+.fit-legend-gap {
+  border: 1.5px dashed #cbbfae;
+}
+
+/* Strength progress: one tappable line; the Progress tab owns the charts. */
+.fit-gain-teaser {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 16px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.92rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fit-gain-teaser > svg:first-child {
+  color: var(--leaf);
+  flex: none;
+}
+
+.fit-gain-teaser > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.fit-gain-teaser > svg:last-child {
+  color: var(--muted);
+  flex: none;
+}
+
 /* ---- Journal: weekly bars -------------------------------------------------- */
 .fit-weeks {
   display: grid;
@@ -1189,6 +1273,32 @@ button.fit-dot {
   font-weight: 700;
 }
 
+.fit-week-col.current:not(.hit):not(.load) .fit-week-bar i,
+.fit-week-key .key-now {
+  background: repeating-linear-gradient(135deg, #b9b2a6 0 4px, #d8d1c5 4px 8px);
+  opacity: 1;
+}
+
+.fit-week-key {
+  margin-top: 4px;
+}
+
+.fit-week-key .key-hit {
+  background: var(--leaf);
+}
+
+.fit-week-key .key-short {
+  background: var(--amber);
+  opacity: 0.75;
+}
+
+.fit-week-key .key-target {
+  height: 0;
+  border-top: 2px dashed var(--ink);
+  border-radius: 0;
+  opacity: 0.55;
+}
+
 .fit-week-col.current small {
   color: var(--ink);
   font-weight: 900;
@@ -1231,7 +1341,8 @@ button.fit-dot {
   }
 
   .fit-cal-day {
-    min-height: 54px;
+    min-height: 46px;
+    padding-top: 4px;
   }
 
   .mark {
@@ -1440,7 +1551,6 @@ button.fit-dot {
   border-radius: 16px;
 }
 
-.fit-progress-card,
 .fit-goal {
   border-radius: 16px;
 }
@@ -1765,30 +1875,6 @@ select.fit-seg-label {
   color: var(--muted);
 }
 
-/* Daily load: a little bar at the top of a trained day, longer = harder for *you*. */
-.fit-cal-load {
-  position: absolute;
-  top: 3px;
-  left: 50%;
-  transform: translateX(-50%);
-  height: 3px;
-  border-radius: 2px;
-  background: #b0472f;
-}
-
-.fit-cal-load.band-1 {
-  width: 22%;
-  opacity: 0.45;
-}
-
-.fit-cal-load.band-2 {
-  width: 45%;
-  opacity: 0.7;
-}
-
-.fit-cal-load.band-3 {
-  width: 70%;
-}
 
 @media (max-width: 620px) {
   .fit-seg {
