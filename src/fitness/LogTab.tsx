@@ -14,6 +14,7 @@ import {
   EMPTY_DURATION,
   EMPTY_INTERVALS,
   IntervalBuilder,
+  LIFT_DURATION_CHIPS,
   RpeField,
   segmentsFromDraft,
 } from './IntensityFields'
@@ -415,7 +416,13 @@ export function WorkoutForm({
         <IntervalBuilder value={intervals} onChange={setIntervals} lastSegments={lastIntervals} />
       ) : (
         <>
-          <DurationField value={duration} onChange={setDuration} optional={kind === 'strength'} />
+          <DurationField
+            value={duration}
+            onChange={setDuration}
+            optional={kind === 'strength'}
+            label={kind === 'strength' ? 'Time, rests included' : 'Time'}
+            chips={kind === 'strength' ? LIFT_DURATION_CHIPS : undefined}
+          />
           {kind === 'cardio' ? (
             <label className="fit-distance">
               Distance km (optional)
@@ -429,6 +436,9 @@ export function WorkoutForm({
       {title.trim() ? <MusclePicker value={muscles} fallback={guessedMuscles} onChange={setMuscles} /> : null}
 
       <RpeField value={rpe} onChange={setRpe} legacyEffort={initial?.rpe === undefined ? initial?.effort : undefined} />
+      {kind === 'strength' && rpe !== undefined && !durationToMinutes(duration) ? (
+        <p className="small-label fit-pace fit-load-nudge">No time, no load: add the minutes above so this counts toward the day.</p>
+      ) : null}
 
       <label className="fit-note">
         Note (optional)

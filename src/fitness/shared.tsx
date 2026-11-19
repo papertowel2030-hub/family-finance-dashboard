@@ -191,7 +191,7 @@ export function describeWorkout(workout: Workout) {
 export function describeIntensity(workout: Workout) {
   if (workout.rpe === undefined) return null
   const load = sessionLoad(workout)
-  return `RPE ${workout.rpe}${load !== null ? ` · load ${formatNumber(load)}` : ' · add time for load'}`
+  return `RPE ${workout.rpe}${load !== null ? ` · load ${formatNumber(load)}` : ' · tap to add time for load'}`
 }
 
 /** The intensity line for any entry: rating and load, or an honest "unrated". */

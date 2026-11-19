@@ -29,8 +29,22 @@ export function durationToMinutes(draft: DurationDraft): number | undefined {
 }
 
 const DURATION_CHIPS = [20, 30, 45, 60, 90]
+/** One exercise, sets plus the rests between them, rarely runs past 20 min. */
+export const LIFT_DURATION_CHIPS = [5, 10, 15, 20]
 
-export function DurationField({ value, onChange, label = 'Time', optional = false }: { value: DurationDraft; onChange: (next: DurationDraft) => void; label?: string; optional?: boolean }) {
+export function DurationField({
+  value,
+  onChange,
+  label = 'Time',
+  optional = false,
+  chips = DURATION_CHIPS,
+}: {
+  value: DurationDraft
+  onChange: (next: DurationDraft) => void
+  label?: string
+  optional?: boolean
+  chips?: readonly number[]
+}) {
   return (
     <div className="fit-duration">
       <span className="fit-field-label">
@@ -40,7 +54,7 @@ export function DurationField({ value, onChange, label = 'Time', optional = fals
       <div className="fit-duration-row">
         <TimeInputs value={value} onChange={onChange} labelPrefix={label} />
         <div className="fit-duration-chips" role="group" aria-label="Quick minutes">
-          {DURATION_CHIPS.map((minutes) => (
+          {chips.map((minutes) => (
             <button key={minutes} type="button" className={`fit-chip pick${value.min === String(minutes) && !value.sec ? ' on' : ''}`} onClick={() => onChange({ min: String(minutes), sec: '' })}>
               {minutes}′
             </button>
